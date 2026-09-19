@@ -64,10 +64,10 @@ Tributary operates in four phases:
 tributary inspect --dsn "postgres://user:pass@localhost:5432/prod"
 
 # Plan a subset
-tributary plan   --seed-table users   --seed-predicate "id = 42"
+tributary plan --seed-table users --seed-predicate "id = 42"
 
 # Sync it to your dev database
-tributary sync run   --source-dsn "postgres://user:pass@localhost:5432/prod"   --target-dsn "postgres://user:pass@localhost:5432/dev"   --seed-table users   --seed-predicate "id = 42"
+tributary sync run --source-dsn "postgres://user:pass@localhost:5432/prod" --target-dsn "postgres://user:pass@localhost:5432/dev" --seed-table users --seed-predicate "id = 42"
 ```
 
 ## Next Steps
