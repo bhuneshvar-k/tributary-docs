@@ -1,0 +1,139 @@
+---
+title: Troubleshooting
+description: "Common issues and how to resolve them"
+---
+
+## Connection Issues
+
+### "connect: connection refused"
+
+The Postgres server isn't accepting connections on the specified host and port.
+
+**Check:**
+
+- Is Postgres running? (`pg_isready -h localhost -p 5432`)
+- Is the host/port correct in your DSN?
+- Is Postgres configured to listen on the right address? (check `postgresql.conf` → `listen_addresses`)
+- Is there a firewall blocking the port?
+
+### "connect: password authentication failed"
+
+The username or password is incorrect.
+
+**Check:**
+
+- Verify credentials with `psql` directly
+- Check `pg_hba.conf` for authentication method requirements
+- Ensure the password in the DSN is URL-encoded if it contains special characters
+
+### "sslmode=require failed"
+
+SSL connection couldn't be established.
+
+**Check:**
+
+- Does the server support SSL? (`SHOW ssl;` in psql)
+- Try `sslmode=disable` for local development
+- Try `sslmode=verify-ca` if you have a CA certificate
+
+## Schema Issues
+
+### "no such table in catalog"
+
+The seed table or a referenced table doesn't exist in the database.
+
+**Fix:**
+
+- Run `tributary inspect` to see all available tables
+- Check for typos in the table name
+- Ensure you're connecting to the right database
+- Table names are case-sensitive — use exact casing from `information_schema`
+
+### "table has no primary key"
+
+Tributary requires a primary key on every table to identify rows.
+
+**Fix:**
+
+- Add a primary key to the table
+- If the table truly has no PK, you cannot subset it with Tributary
+
+### "invalid schema file: relations[i]: from=... no such table"
+
+A relation in `tributary.schema.yaml` references a table that doesn't exist in the database.
+
+**Fix:**
+
+- Run `tributary inspect` and check the actual table names
+- Ensure schema-qualified names are correct
+- Check for typos
+
+### "unresolved cycle"
+
+A cycle was detected in the FK graph with no configured `dependency_breaks` entry (and `--strict-cycles` is enabled).
+
+**Fix:**
+
+- Add a `dependency_breaks` entry to `tributary.schema.yaml`
+- Or remove `--strict-cycles` to allow auto-breaking
+
+## Sync Issues
+
+### "Seed query matched no rows"
+
+The WHERE predicate didn't match any rows in the seed table.
+
+**Fix:**
+
+- Run the query directly in psql to verify
+- Check for type mismatches (string vs integer)
+- Ensure you're connecting to the right database
+
+### "row vanished between discovery and fetch"
+
+A row was discovered during the closure walk but disappeared before it could be fetched. This usually means the source data changed mid-sync.
+
+**Fix:**
+
+- Re-run the sync — upsert semantics make this safe
+- For large databases, consider syncing during a quiet period
+
+### Upsert not working as expected
+
+If rows aren't being updated, check:
+
+- Does the target table have the correct primary key?
+- Are the PK column values the same on source and target?
+- Try `--fresh` to force a clean reload
+
+## Performance Issues
+
+### Slow sync on large databases
+
+Tributary processes one table at a time in FK-safe order. For very large subsets:
+
+- Narrow your seed predicate to reduce the subset size
+- Use `tributary plan` first to see per-table row counts
+- Consider syncing during off-peak hours
+- Check that indexes exist on foreign key columns
+
+### High memory usage
+
+The closure walk holds all discovered rows in memory. For very large subsets (millions of rows), this can use significant memory.
+
+- Narrow your seed predicate
+- Split large subsets into multiple smaller syncs
+
+## Checkpoint Issues
+
+### Stale checkpoints
+
+If a previous sync crashed and left stale state:
+
+```bash
+# Delete the state database and start fresh
+rm .tributary/state.db
+
+# Or use --fresh flag
+tributary sync run --fresh ...
+```

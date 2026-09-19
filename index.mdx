@@ -3,18 +3,89 @@ title: "Introduction"
 description: "Welcome to your project"
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+Tributary is a command-line tool that extracts **referentially consistent subsets** from a Postgres database and loads them into a target Postgres instance.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+It walks real foreign keys plus user-declared relationships, computes the closure of rows that must travel together, and loads that subset — maintaining full referential integrity in the target.
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+```text
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│  Source Postgres │ ───► │    Tributary    │ ───► │ Target Postgres │
+│   (Production)  │      │  (CLI Tool)     │      │  (Dev/Staging)  │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+```
+
+## Why Tributary?
+
+Production databases grow fast. Copying the entire dataset to dev or staging is slow, expensive, and often impractical. But naively copying a few rows breaks foreign key constraints and leaves you with an unusable database.
+
+Tributary solves this by computing the **referential closure** of a seed query — it follows every foreign key relationship to determine exactly which rows must travel together, then loads them in the correct order.
+
+## Key Features
+
+<CardGroup>
+  <Card title="Referential Integrity" icon="link">
+    Automatically follows foreign keys to maintain data relationships. Seed one row and get every parent, child, and related record needed.
+  </Card>
+
+  <Card title="Upsert Semantics" icon="arrows-rotate">
+    Safe to re-run. Existing rows are updated, new rows are inserted. No duplicate key errors.
+  </Card>
+
+  <Card title="Resumable Sync" icon="rotate-right">
+    Checkpoint system in local SQLite allows interrupted syncs to resume from where they left off.
+  </Card>
+
+  <Card title="Schema Auto-Create" icon="database">
+    Automatically creates missing target tables with columns, types, PKs, FKs, and enum types.
+  </Card>
+
+  <Card title="MCP Server" icon="robot">
+    Ships with an MCP server for AI assistants — inspect databases, preview subsets, and run syncs without the CLI.
+  </Card>
+
+  <Card title="Cross-Platform" icon="laptop">
+    Works on macOS, Linux, and Windows (amd64 & arm64). Single binary, no dependencies.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+Tributary operates in four phases:
+
+1. **Inspect** — Reads the source database's schema from `pg_catalog`: tables, columns, primary keys, foreign keys, and enum types.
+2. **Graph Build** — Merges discovered FK constraints with user-declared relationships (from `tributary.schema.yaml`) into a single relationship graph. Detects cycles.
+3. **Closure Walk** — Starting from seed rows (matching your WHERE predicate), walks the graph to compute every row that must travel together for referential validity.
+4. **Load** — Creates missing target tables, then loads rows in FK-safe order using upsert semantics (`INSERT ... ON CONFLICT DO UPDATE`).
+
+## Quick Example
+
+```bash
+# Inspect your schema
+tributary inspect --dsn "postgres://user:pass@localhost:5432/prod"
+
+# Plan a subset
+tributary plan   --seed-table users   --seed-predicate "id = 42"
+
+# Sync it to your dev database
+tributary sync run   --source-dsn "postgres://user:pass@localhost:5432/prod"   --target-dsn "postgres://user:pass@localhost:5432/dev"   --seed-table users   --seed-predicate "id = 42"
+```
+
+## Next Steps
+
+<CardGroup>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get from zero to a working subset in under 5 minutes.
+  </Card>
+
+  <Card title="Installation" icon="download" href="/installation">
+    Install Tributary via Homebrew, curl, Go, or build from source.
+  </Card>
+
+  <Card title="CLI Reference" icon="terminal" href="/cli-reference">
+    Full documentation for every command and flag.
+  </Card>
+
+  <Card title="Schema Configuration" icon="file-code" href="/schema-configuration">
+    Define soft FKs, composite keys, polymorphic associations, and more.
+  </Card>
+</CardGroup>

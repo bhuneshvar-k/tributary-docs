@@ -1,0 +1,183 @@
+---
+title: Architecture
+description: "Internal design and how Tributary works under the hood"
+---
+
+This page explains Tributary's internal architecture for contributors and users who want to understand how the tool works.
+
+## High-Level Design
+
+Tributary operates as a pipeline with four distinct phases:
+
+```text
+┌──────────┐    ┌───────────┐    ┌──────────┐    ┌──────┐
+│ Catalog  │───▶│   Graph   │───▶│ Closure  │───▶│ Load │
+│ Inspect  │    │   Build   │    │   Walk   │    │      │
+└──────────┘    └───────────┘    └──────────┘    └──────┘
+  pg_catalog    Merge real FKs    BFS/DFS from    Create tables
+  + enums       + schema file     seed rows       + upsert data
+```
+
+## Phase 0: Catalog Inspection (`internal/catalog`)
+
+Connects to the source Postgres database and walks `pg_catalog` to build a complete picture of its schema.
+
+### What It Reads
+
+- **Tables & Columns** — From `information_schema.columns`, skipping system schemas. Includes data type, nullability, length/precision/scale, and UDT name for custom types.
+- **Foreign Keys** — From `pg_constraint` (type `'f'`), using `unnest(conkey, confkey) WITH ORDINALITY` to preserve column pairing on composite keys.
+- **Primary Keys** — From `pg_constraint` (type `'p'`), in declaration order.
+- **Enum Types** — From `pg_type` + `pg_enum`, keyed by bare type name with labels in declaration order.
+
+### Domain Handling
+
+PostgreSQL reports domain columns with their underlying type (e.g. `"integer"`) rather than `"USER-DEFINED"`. The catalog normalizes these so downstream code handles them correctly.
+
+## Phase 1: Graph Build (`internal/graph`)
+
+Merges the catalog-discovered schema with a user-declared `tributary.schema.yaml` file into a single relationship graph.
+
+### Graph Structure
+
+```go
+type Graph struct {
+    Nodes       map[NodeID]catalog.Table      // table identity -> table metadata
+    Outgoing    map[NodeID][]Edge              // edges FROM this table
+    Incoming    map[NodeID][]Edge              // edges TO this table
+    PolyReverse map[NodeID][]PolyReverseEdge   // reverse index for polymorphic edges
+    Cycles      [][]NodeID                     // detected cycles
+}
+```
+
+### Edge Sources
+
+| Source | Description |
+| --- | --- |
+| `EdgeFromCatalog` | A real `pg_catalog` foreign key constraint |
+| `EdgeDeclared` | A user-declared relation (soft FK) |
+| `EdgePolymorphic` | A user-declared polymorphic association |
+
+### Cycle Detection
+
+Cycles are detected via DFS with an explicit recursion stack. When a traversal reaches a node still on the stack, the stack slice from that node onward is one cycle. Polymorphic edges are expanded into one traversal edge per possible target.
+
+### Validation
+
+Every relation from the schema file is validated against the actual catalog:
+
+- Unknown tables → error
+- Unknown columns → error
+- Polymorphic type column not on the same table → error
+- `ignore` on a non-existent FK → error
+- `dependency_breaks` on a non-cycle edge → error
+
+All errors are aggregated via `errors.Join`.
+
+## Phase 2: Closure Walk (`internal/graph/closure.go`)
+
+Computes the referentially consistent subset — every row that must travel together to stay valid.
+
+### Algorithm
+
+```text
+1. Query seed rows matching the predicate
+2. Enqueue each seed row
+3. While queue is not empty:
+   a. Dequeue a row
+   b. Fetch its full data (lazy hydration)
+   c. Expand: follow outgoing edges (parents) + incoming edges (children)
+   d. For each discovered row not yet seen: enqueue it
+```
+
+### Traversal Modes
+
+**Downstream Only** (default):
+
+- Follows incoming edges (children) only from the seed and rows reached by genuine downstream fan-out
+- Parent rows are fetched but not used as fan-out points
+- Produces a focused subset
+
+**Full** (`--include-upstream`):
+
+- Fans out from every row regardless of how it was reached
+- The original, unconditional bidirectional walk
+- Produces a broader subset
+
+### Cycle Handling
+
+Self-referencing/cyclic outgoing edges are handled per configured `dependency_breaks`:
+
+1. **Configured break** — The edge is stopped globally
+2. **Auto-break** (default) — The walker guesses which edge to break
+3. **Strict mode** (`--strict-cycles`) — Unresolved cycles become hard errors
+
+## Phase 3: Load (`internal/load`)
+
+Writes the computed subset to the target database.
+
+### Schema Creation
+
+If auto-create is enabled (default), missing target tables are created with:
+
+- Columns + data types
+- `NOT NULL` constraints
+- `PRIMARY KEY` constraints
+- Real foreign keys
+- Enum type definitions
+
+### Data Loading
+
+Each table is loaded in FK-safe order:
+
+1. **COPY to staging** — Rows are `COPY`'d into an unconstrained TEMP table
+2. **Upsert merge** — `INSERT INTO real_table SELECT * FROM staging ON CONFLICT (pk) DO UPDATE SET ...`
+3. **Self-referencing FK backfill** — Self-referencing FK columns are forced NULL during merge, then backfilled
+
+### Checkpointing
+
+Progress is tracked in a local SQLite database (`.tributary/state.db`):
+
+- Each sync is identified by a stable hash of (source, target, seed, schema-file)
+- Table-level checkpoints are written only after the transaction commits
+- A crash mid-table leaves nothing to resume from
+- Resumed runs skip tables already marked done
+
+## Phase 4: Masking (`internal/mask`)
+
+_Not yet implemented._ Will apply column-level transformers (hash, deterministic fake, redact) to rows before they land in the target database.
+
+## Project Structure
+
+```text
+tributary/
+├── cmd/
+│   ├── tributary/          # CLI entry point
+│   └── mcp-server/         # MCP server binary
+├── internal/
+│   ├── catalog/            # Schema introspection (pg_catalog)
+│   ├── graph/              # FK graph build + closure walk
+│   ├── subset/             # Dependency ordering (topological sort)
+│   ├── load/               # Schema ensure + COPY/upsert
+│   ├── state/              # SQLite checkpointing
+│   ├── mask/               # Column-level transformers (phase 3)
+│   ├── mcpserver/          # MCP server tools
+│   ├── replicate/          # Logical replication (phase 4)
+│   └── version/            # Version info + update check
+├── pkg/
+│   └── config/             # Configuration handling (schema files)
+└── testdata/               # Integration test fixtures
+```
+
+## Key Design Decisions
+
+### Why COPY + Staging?
+
+`COPY` is the fastest way to load data into Postgres, but it has no conflict handling. By COPYing into an unconstrained TEMP table first, then merging with `ON CONFLICT DO UPDATE`, we get both speed and upsert semantics.
+
+### Why SQLite for Checkpoints?
+
+Pure Go SQLite keeps the single-binary deliverable true. A real coordination service would be overkill — the checkpoint store only needs to survive process crashes, not coordinate across nodes.
+
+### Why Not Just Use `pg_dump`?
+
+`pg_dump` doesn't understand application-level relationships (soft FKs, polymorphic associations). It can't compute a referentially consistent subset. Tributary fills this gap.

@@ -1,0 +1,170 @@
+---
+title: Schema Configuration
+description: "Define custom relationships with tributary.schema.yaml"
+---
+
+Use `tributary.schema.yaml` when your database has relationships that aren't enforced by foreign keys — or when you need to override or suppress discovered constraints.
+
+## When to Use a Schema File
+
+You **don't** need a schema file if your database has proper foreign key constraints for every relationship you care about. Tributary automatically discovers these from `pg_catalog`.
+
+You **do** need one when:
+
+- Your app uses **soft foreign keys** (no DB constraint — common in Rails/ActiveRecord)
+- You have **composite keys** spanning multiple columns
+- You use **polymorphic associations** (a type column determines which table a FK points to)
+- You want to **ignore** a FK the resolver shouldn't follow
+- You need to **break cycles** explicitly
+
+## File Location
+
+The default file name is `tributary.schema.yaml` in the current directory. Pass it explicitly with `--schema-file`:
+
+```bash
+tributary plan --schema-file path/to/tributary.schema.yaml ...
+```
+
+## Supported Relation Types
+
+### Soft Foreign Key
+
+A relationship that exists in your application code but has no database constraint.
+
+```yaml
+relations:
+  - from: orders.user_id
+    to: users.id
+```
+
+This tells Tributary: "Every `orders.user_id` value references a `users.id` value — follow this edge during the closure walk."
+
+### Composite Key
+
+When a foreign key spans multiple columns:
+
+```yaml
+relations:
+  - from: [line_items.order_id, line_items.tenant_id]
+    to: [orders.id, orders.tenant_id]
+```
+
+Column pairs are matched by position — the first `from` column references the first `to` column, and so on.
+
+### Polymorphic Association
+
+A Rails/ActiveRecord pattern where a type column determines which table a FK points to:
+
+```yaml
+relations:
+  - from: comments.commentable_id
+    polymorphic_type: comments.commentable_type
+    targets:
+      Post: posts.id
+      Photo: photos.id
+```
+
+When `comments.commentable_type = 'Post'`, the `commentable_id` references `posts.id`. When it's `'Photo'`, it references `photos.id`.
+
+**Constraints:**
+
+- `polymorphic_type` must be a column on the same table as `from`
+- Every key in `targets` must match a value that appears in the type column
+- Every target table and column must exist in the catalog
+
+### Ignore FK Edge
+
+Suppress a real FK constraint the resolver shouldn't follow — useful for self-referencing audit tables or circular references that would explode the subset:
+
+```yaml
+relations:
+  - ignore: audit_logs.actor_id
+```
+
+**Constraints:**
+
+- The named column must be part of a catalog-discovered FK
+- If multiple FK constraints on the same table use that column, the ignore is ambiguous
+
+### Dependency Breaks (Cycle Handling)
+
+Cycles in the FK graph (e.g. a self-referencing `manager_id` on an `employees` table) must be broken somewhere. Tributary auto-breaks cycles by default, but you can pin the break point explicitly:
+
+```yaml
+dependency_breaks:
+  - table: employees
+    column: manager_id
+```
+
+When a cycle is detected through this edge, the walker stops following it — preventing an unbounded traversal up the management hierarchy.
+
+**Constraints:**
+
+- The named table.column must participate in a detected cycle
+- If `--strict-cycles` is used, any unresolved cycle becomes a hard error
+
+## Complete Example
+
+```yaml
+# tributary.schema.yaml
+#
+# Declares relationships pg_catalog can't see: soft FKs, composite keys,
+# and polymorphic associations. Also the place to suppress a real FK the
+# resolver shouldn't follow, and to control how cycles get broken.
+
+relations:
+  # soft FK — no DB constraint
+  - from: orders.user_id
+    to: users.id
+
+  # composite key
+  - from: [line_items.order_id, line_items.tenant_id]
+    to: [orders.id, orders.tenant_id]
+
+  # polymorphic association — target depends on a type column
+  - from: comments.commentable_id
+    polymorphic_type: comments.commentable_type
+    targets:
+      Post: posts.id
+      Photo: photos.id
+
+  # suppress a real FK the resolver shouldn't follow
+  - ignore: audit_logs.actor_id
+
+# Cycles in the FK graph are auto-broken by default, but that guess
+# can be wrong — pin it explicitly here instead.
+dependency_breaks:
+  - table: employees
+    column: manager_id
+```
+
+## Validation
+
+Tributary validates your schema file against the actual database catalog before building the graph. Every relation is checked:
+
+- Referenced tables must exist
+- Referenced columns must exist on those tables
+- Polymorphic type column must be on the same table as `from`
+- Target tables and columns must exist
+- `ignore` entries must match a catalog-discovered FK
+- `dependency_breaks` entries must name an edge participating in a detected cycle
+
+All errors are aggregated and reported at once, so you can fix multiple issues in one pass.
+
+## Schema-Qualified References
+
+Table references can be schema-qualified:
+
+```yaml
+relations:
+  - from: inventory.warehouse_items.product_id
+    to: catalog.products.id
+```
+
+Unqualified references default to the `public` schema:
+
+```yaml
+relations:
+  - from: orders.user_id  # resolves to public.orders.user_id
+    to: users.id          # resolves to public.users.id
+```

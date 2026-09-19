@@ -1,0 +1,217 @@
+---
+title: CLI Reference
+description: "Complete documentation for all Tributary commands and flags"
+---
+
+## Global Flags
+
+| Flag | Description |
+| --- | --- |
+| `--version` | Show version information |
+| `--help` | Show help for any command |
+
+## `tributary inspect`
+
+Prints source schema metadata as JSON. Use this to understand your database structure before planning a subset.
+
+### Usage
+
+```bash
+tributary inspect --dsn "$TRIBUTARY_DSN"
+```
+
+### Flags
+
+| Flag | Description | Required |
+| --- | --- | --- |
+| `--dsn` | Database connection string (or env `TRIBUTARY_DSN`) | Yes |
+
+### Output
+
+The output is a JSON document containing:
+
+- **Tables** — Every user table in the database
+- **Columns** — Column name, data type, nullability, length/precision/scale, and UDT name for custom types
+- **Primary Keys** — Primary key columns per table (in declaration order)
+- **Foreign Keys** — Every FK constraint with from/to table and column pairs (supports composite keys)
+- **Enums** — Every custom enum type with its labels in declaration order
+
+### Example
+
+```bash
+tributary inspect --dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
+```
+
+<Accordion title="Example Output">
+  ```json
+  {
+    "tables": [
+      {
+        "schema": "public",
+        "name": "users",
+        "columns": [
+          { "name": "id", "type": "integer", "is_nullable": false },
+          { "name": "email", "type": "character varying", "is_nullable": false, "char_max_length": 255 }
+        ],
+        "primary_key": ["id"],
+        "foreign_keys": []
+      }
+    ],
+    "enums": {
+      "status": ["active", "inactive", "pending"]
+    }
+  }
+  ```
+</Accordion>
+
+---
+
+## `tributary plan`
+
+Computes a referentially consistent subset from a seed table and predicate. Shows per-table row counts without actually loading data.
+
+### Usage
+
+```bash
+tributary plan \
+  --dsn "$TRIBUTARY_DSN" \
+  --seed-table users \
+  --seed-predicate "id = 42"
+```
+
+### Flags
+
+| Flag | Description | Required | Default |
+| --- | --- | --- | --- |
+| `--dsn` | Database connection string (or env `TRIBUTARY_DSN`) | Yes | — |
+| `--seed-table` | Starting table for subset | Yes | — |
+| `--seed-predicate` | SQL WHERE fragment to select seed rows | Yes | — |
+| `--schema-file` | Path to schema relations file | No | — |
+| `--strict-cycles` | Fail instead of auto-breaking cycles | No | `false` |
+| `--include-upstream` | Enable full bidirectional fan-out | No | `false` |
+| `--format` | Output format: `text` or `json` | No | `text` |
+
+### Behavior
+
+- Default mode is **downstream-only**: required parent rows are included but don't fan out to all siblings
+- `--include-upstream` enables full fan-out from any discovered row
+- `--seed-predicate` is a raw SQL `WHERE` fragment — not sanitized against injection (admin-tool trust model)
+
+### Example
+
+```bash
+tributary plan \
+  --dsn "postgres://user:pass@localhost:5432/prod?sslmode=disable" \
+  --seed-table public.users \
+  --seed-predicate "id = 42" \
+  --schema-file tributary.schema.yaml
+```
+
+<Accordion title="Example Output">
+  ```text
+  Subset Plan
+  ═══════════
+  
+  Seed: public.users WHERE id = 42
+  Mode: downstream-only
+  
+  Table                     Rows
+  ───────────────────────── ────
+  public.users                 1
+  public.orders               12
+  public.order_items          34
+  public.products              8
+  
+  Total: 55 rows across 4 tables
+  ```
+</Accordion>
+
+---
+
+## `tributary sync run`
+
+Executes a one-shot subset copy from source to target. This is the main command for actually moving data.
+
+### Usage
+
+```bash
+tributary sync run \
+  --source-dsn "$SOURCE_DSN" \
+  --target-dsn "$TARGET_DSN" \
+  --seed-table users \
+  --seed-predicate "id = 42"
+```
+
+### Flags
+
+| Flag | Description | Required | Default |
+| --- | --- | --- | --- |
+| `--source-dsn` | Source database connection (or env `TRIBUTARY_SOURCE_DSN`) | Yes | — |
+| `--target-dsn` | Target database connection (or env `TRIBUTARY_TARGET_DSN`) | Yes | — |
+| `--seed-table` | Starting table for subset | Yes | — |
+| `--seed-predicate` | SQL WHERE fragment to select seed rows | Yes | — |
+| `--schema-file` | Path to schema relations file | No | — |
+| `--strict-cycles` | Fail instead of auto-breaking cycles | No | `false` |
+| `--include-upstream` | Enable full bidirectional fan-out | No | `false` |
+| `--fresh` | Force cleanup before reload | No | `false` |
+| `--no-create-schema` | Skip auto-creating target tables | No | `false` |
+| `--state-db` | Path to checkpoint database | No | `.tributary/state.db` |
+| `--no-resume` | Don't resume from checkpoints | No | `false` |
+| `--format` | Output format: `text` or `json` | No | `text` |
+
+### Behavior
+
+- Default write mode is **upsert** (`INSERT ... ON CONFLICT DO UPDATE`)
+- Re-running with the same scope is safe and expected
+- `--fresh` performs subset-scoped cleanup before reload
+- Missing target tables are auto-created by default
+- Checkpointing in local SQLite for crash resume
+
+### What Gets Created on the Target
+
+When auto-create is enabled (default), Tributary creates missing target tables with:
+
+- Columns + data types
+- `NOT NULL` constraints
+- `PRIMARY KEY` constraints
+- Real foreign keys
+- Enum type definitions
+
+**Not covered:** Defaults, sequences/identity, check constraints, indexes beyond PK, triggers, views, non-enum custom types.
+
+---
+
+## `tributary update`
+
+Updates Tributary to the latest version.
+
+### Usage
+
+```bash
+tributary update
+```
+
+### Features
+
+- Automatically downloads and installs the latest version
+- Falls back to manual instructions if self-update fails
+- Shows current and available versions
+
+---
+
+## DSN Format
+
+Postgres connection strings follow this format:
+
+```text
+postgres://username:password@hostname:port/database?sslmode=require
+```
+
+### Common SSL Modes
+
+| Mode | Description |
+| --- | --- |
+| `disable` | No SSL (local development only) |
+| `require` | SSL required, no certificate verification |
+| `verify-ca` | SSL required, verify server certificate |
+| `verify-full` | SSL required, verify server certificate and hostname |
