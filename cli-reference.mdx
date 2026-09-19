@@ -199,6 +199,58 @@ tributary update
 
 ---
 
+## `tributary completion`
+
+Generates shell autocompletion scripts for bash, zsh, fish, and PowerShell.
+
+### Usage
+
+```bash
+tributary completion [shell]
+```
+
+### Shells
+
+| Shell | Command |
+| --- | --- |
+| bash | `tributary completion bash` |
+| zsh | `tributary completion zsh` |
+| fish | `tributary completion fish` |
+| powershell | `tributary completion powershell` |
+
+### Install
+
+**Bash:**
+
+```bash
+tributary completion bash > /etc/bash_completion.d/tributary
+# Or for current session:
+source <(tributary completion bash)
+```
+
+**Zsh:**
+
+```bash
+tributary completion zsh > "${fpath[1]}/_tributary"
+# Or for current session:
+source <(tributary completion zsh)
+```
+
+**Fish:**
+
+```bash
+tributary completion fish > ~/.config/fish/completions/tributary.fish
+```
+
+**PowerShell:**
+
+```powershell
+tributary completion powershell > tributary.ps1
+. .\tributary.ps1
+```
+
+---
+
 ## DSN Format
 
 Postgres connection strings follow this format:
