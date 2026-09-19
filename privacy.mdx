@@ -1,0 +1,114 @@
+---
+title: Privacy & Data Security
+description: Tributary never sees, stores, or transmits your data
+---
+
+## Your Data Stays on Your Machines
+
+**Tributary is a local CLI tool. It never sees, stores, or transmits your data.**
+
+Tributary runs entirely on your machine and connects directly between your source and target Postgres databases. No data passes through any third-party server, cloud service, or analytics endpoint — not even temporarily.
+
+## How It Works
+
+```text
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│  Source Postgres │ ◄──► │    Tributary    │ ◄──► │ Target Postgres │
+│   (Your Server) │      │  (Your Machine) │      │  (Your Server)  │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+        ▲                                                  ▲
+        │              No external connections              │
+        └──────────────────────────────────────────────────┘
+```
+
+- **Direct connections** — Tributary connects to your source and target databases directly from your machine
+- **No intermediaries** — Data never passes through Tributary's infrastructure, any cloud service, or any third party
+- **No telemetry** — Tributary does not phone home, report usage, or send any data about your databases
+- **No data persistence** — Tributary does not write your data to disk (except the target database and a local checkpoint file)
+
+## What Tributary Accesses
+
+### Schema Metadata (Read-Only)
+
+Tributary reads database schema information from `pg_catalog`:
+
+- Table names and column definitions
+- Primary key constraints
+- Foreign key constraints
+- Enum type definitions
+
+This is **metadata only** — the structure of your database, not its contents.
+
+### Row Data (During Sync Only)
+
+When running `tributary sync`, Tributary reads rows from the source database that match your seed predicate and their referential closure, then writes them to the target database.
+
+**Key points:**
+
+- Row data is streamed directly between databases — it is not cached, logged, or stored by Tributary
+- The only local storage is the checkpoint database (`.tributary/state.db`), which tracks which tables have been synced (table names and row counts only — no actual data)
+
+## What Tributary Does NOT Do
+
+| Action | Status |
+|--------|--------|
+| Send data to external servers | Never |
+| Phone home or report analytics | Never |
+| Log queries or row data | Never |
+| Store credentials in plaintext | Never |
+| Access the internet during sync | Never |
+| Upload schema information | Never |
+| Share usage statistics | Never |
+
+## Network Behavior
+
+Tributary makes exactly two types of network connections during operation:
+
+1. **Source database** — Connects to read schema and rows (controlled by `--source-dsn`)
+2. **Target database** — Connects to write schema and rows (controlled by `--target-dsn`)
+
+**No other network connections are made.** The `tributary update` command is the only exception — it connects to GitHub Releases to download new versions.
+
+## Checkpoint File
+
+Tributary creates a local SQLite file (`.tributary/state.db`) to track sync progress. This file contains:
+
+- Run identifiers (hashes of source + target + seed + schema file)
+- Table names and their sync status
+- Row counts and backfill counts
+
+**The checkpoint file does not contain:**
+
+- Row data
+- Column values
+- Query results
+- Connection strings (DSNs)
+
+You can safely delete this file at any time — it only affects resumability of interrupted syncs.
+
+## Open Source
+
+Tributary is fully open source under the MIT License. You can:
+
+- **Read the code** — Verify exactly what Tributary does at [github.com/bhuneshvar-k/tributary](https://github.com/bhuneshvar-k/tributary)
+- **Build from source** — Compile it yourself with no modifications
+- **Audit network calls** — Verify no external connections are made
+- **Fork and modify** — Adapt it to your needs
+
+## Credential Security
+
+Tributary accepts database credentials via:
+
+- **DSN connection strings** — Passed as command-line arguments or environment variables
+- **Environment variables** — `TRIBUTARY_DSN`, `TRIBUTARY_SOURCE_DSN`, `TRIBUTARY_TARGET_DSN`
+
+**Best practices:**
+
+- Use environment variables instead of command-line arguments (arguments may appear in process listings)
+- Use `sslmode=require` or `sslmode=verify-full` for remote connections
+- Use connection poolers (like PgBouncer) for production databases
+- Rotate credentials regularly
+
+## Summary
+
+Tributary is a **zero-trust data movement tool**. Your data stays on your infrastructure, your credentials stay on your machine, and no information about your databases ever leaves your environment.
