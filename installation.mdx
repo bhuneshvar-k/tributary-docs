@@ -1,0 +1,104 @@
+---
+title: Installation
+description: "Install Tributary on macOS, Linux, or Windows"
+---
+
+Tributary ships as a single binary with no external dependencies. Choose the installation method that works best for you.
+
+## Homebrew (macOS/Linux) — Recommended
+
+```bash
+brew tap bhuneshvar-k/tap
+brew trust bhuneshvar-k/tap
+brew install tributary
+```
+
+<Note>
+  `brew trust` is required once per machine for third-party taps. After that, `brew upgrade tributary` works automatically for future versions.
+</Note>
+
+## curl Installer (macOS/Linux)
+
+The fastest way to get started:
+
+```bash
+curl -sSL https://get.tributary.dev | bash
+```
+
+### Options
+
+```bash
+# Install specific version
+curl -sSL https://get.tributary.dev | bash -s -- --version v1.0.0
+
+# Install to custom directory
+curl -sSL https://get.tributary.dev | bash -s -- --to ~/.local/bin
+```
+
+The installer downloads the correct binary for your platform (darwin/linux, amd64/arm64) and places it in your PATH.
+
+## Go Install
+
+If you have Go 1.25+ installed:
+
+```bash
+go install github.com/bhuneshvar-k/tributary/cmd/tributary@latest
+```
+
+This installs the `tributary` binary to `$GOPATH/bin`.
+
+## GitHub Releases
+
+Download the latest binary for your platform from the [Releases](https://github.com/bhuneshvar-k/tributary/releases) page.
+
+Available binaries:
+
+| Platform | Architecture |
+| --- | --- |
+| macOS | amd64, arm64 |
+| Linux | amd64, arm64 |
+| Windows | amd64, arm64 |
+
+## Build from Source
+
+```bash
+git clone https://github.com/bhuneshvar-k/tributary.git
+cd tributary
+make build
+./bin/tributary --version
+```
+
+### Prerequisites
+
+- Go 1.25+
+- Make (for the build script)
+
+## Verify Installation
+
+After installation, verify it works:
+
+```bash
+tributary --version
+# tributary version v1.0.0
+```
+
+## Auto-Update
+
+Tributary includes a built-in update checker. When a new version is available, you'll see a notification.
+
+To update manually:
+
+```bash
+tributary update
+```
+
+This downloads and installs the latest version automatically.
+
+## Environment Variables
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `TRIBUTARY_DSN` | Default database connection string | — |
+| `TRIBUTARY_SOURCE_DSN` | Source database for sync | — |
+| `TRIBUTARY_TARGET_DSN` | Target database for sync | — |
+| `INSTALL_DIR` | Custom install directory for installer script | `/usr/local/bin` |
