@@ -3,9 +3,9 @@
   "theme": "almond",
   "name": "Tributary",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#009EA3",
+    "light": "#009EA3",
+    "dark": "#009EA3"
   },
   "favicon": "/favicon.svg",
   "navigation": {
@@ -26,7 +26,7 @@
     ]
   },
   "logo": {
-    "light": "/images/ChatGPTImageSep19,2026,07_23_04PM.png",
+    "light": "/images/ChatGPTImageSep19,2026,08_54_43PM.png",
     "dark": "/images/ChatGPTImageSep19,2026,07_23_04PM.png"
   },
   "navbar": {
