@@ -26,8 +26,8 @@
     ]
   },
   "logo": {
-    "light": "/images/ChatGPTImageSep19,2026,08_54_43PM.png",
-    "dark": "/images/ChatGPTImageSep19,2026,07_23_04PM.png"
+    "light": "/images/light.png",
+    "dark": "/images/dark.png"
   },
   "navbar": {
     "primary": {
@@ -37,14 +37,7 @@
     }
   },
   "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "mcp",
-      "cursor"
-    ]
+    "options": ["copy", "view", "chatgpt", "claude", "mcp", "cursor"]
   },
   "footer": {
     "socials": {
