@@ -25,6 +25,109 @@ The default file name is `tributary.schema.yaml` in the current directory. Pass 
 tributary plan --schema-file path/to/tributary.schema.yaml ...
 ```
 
+## Schema File Format
+
+The schema file is a YAML document with two optional top-level keys: `relations` and `dependency_breaks`.
+
+### Top-Level Structure
+
+```yaml
+# tributary.schema.yaml
+
+relations:
+  # List of relationship declarations (see below)
+  - from: table_a.column_x
+    to: table_b.column_y
+  # ... more relations
+
+dependency_breaks:
+  # List of cycle-breaking declarations (see below)
+  - table: table_name
+    column: column_name
+  # ... more breaks
+```
+
+Both `relations` and `dependency_breaks` are optional. You can include one, both, or neither.
+
+### Column Reference Format
+
+Every column reference uses the format `table_name.column_name`:
+
+```yaml
+from: orders.user_id    # table = orders, column = user_id
+to: users.id            # table = users,  column = id
+```
+
+For composite keys, use YAML arrays:
+
+```yaml
+from: [line_items.order_id, line_items.tenant_id]
+to: [orders.id, orders.tenant_id]
+```
+
+Array elements must be in the same order on both sides — the first `from` column pairs with the first `to` column, and so on.
+
+### Schema-Qualified References
+
+By default, unqualified table names resolve to the `public` schema. To reference a table in a different schema, prefix it:
+
+```yaml
+# Unqualified — resolves to public.users
+from: orders.user_id
+to: users.id
+
+# Schema-qualified — resolves to inventory.warehouse_items
+from: inventory.warehouse_items.product_id
+to: catalog.products.id
+```
+
+### YAML Syntax Rules
+
+| Rule | Example |
+| --- | --- |
+| Use lowercase snake_case for table and column names | `orders.user_id` ✓, `Orders.UserID` ✗ |
+| Wrap values with special characters in quotes | `from: "table.with.dots".column` |
+| Use YAML arrays `[]` for composite keys | `from: [a.x, b.y]` |
+| Use YAML maps `{}` for polymorphic targets | `targets: { Post: posts.id }` |
+| Comments start with `#` | `# This is a comment` |
+
+### Valid vs. Invalid References
+
+<Tabs>
+  <Tab title="Valid">
+    ```yaml
+    relations:
+      # Simple single-column reference
+      - from: orders.user_id
+        to: users.id
+    
+      # Composite key
+      - from: [line_items.order_id, line_items.tenant_id]
+        to: [orders.id, orders.tenant_id]
+    
+      # Schema-qualified
+      - from: inventory.warehouse_items.product_id
+        to: catalog.products.id
+    ```
+  </Tab>
+  <Tab title="Invalid">
+    ```yaml
+    relations:
+      # Missing column (only table name)
+      - from: orders
+        to: users
+    
+      # Array length mismatch (composite key)
+      - from: [line_items.order_id, line_items.tenant_id]
+        to: [orders.id]  # Should have 2 columns
+    
+      # Empty reference
+      - from: .user_id
+        to: .id
+    ```
+  </Tab>
+</Tabs>
+
 ## Supported Relation Types
 
 ### Soft Foreign Key
