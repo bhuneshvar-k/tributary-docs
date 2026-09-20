@@ -261,6 +261,82 @@ tributary ai --format json "sync user admin@example.com"
 
 ---
 
+## `tributary config`
+
+Manage user-level configuration stored in `~/.tributary/config.yaml`.
+
+### Usage
+
+```bash
+tributary config <subcommand>
+```
+
+### Subcommands
+
+| Subcommand | Description |
+| --- | --- |
+| `set <key> <value>` | Set a config value |
+| `get <key>` | Get a config value |
+| `list` | List all config values |
+| `unset <key>` | Remove a config value |
+| `path` | Print the config file path |
+
+### Precedence
+
+Config values are used as fallbacks when CLI flags and environment variables are not set:
+
+**CLI flags > Environment variables > Config file**
+
+The config file is optional — Tributary works without it.
+
+### Available Keys
+
+| Key | Description |
+| --- | --- |
+| `dsn` | Default Postgres connection string (inspect, plan) |
+| `source_dsn` | Default source Postgres connection string (sync run) |
+| `target_dsn` | Default target Postgres connection string (sync run) |
+| `seed_table` | Default seed table name |
+| `seed_predicate` | Default seed predicate (raw SQL WHERE fragment) |
+| `schema_file` | Default path to tributary.schema.yaml |
+| `ai.provider` | AI provider: `claude`, `openai`, `gemini`, `openrouter`, or `opencode` |
+| `ai.api_key` | API key for the AI provider (stored with 0600 permissions) |
+| `ai.model` | AI model override (empty = provider default) |
+| `ai.base_url` | Custom AI API endpoint (empty = provider default) |
+
+### Examples
+
+```bash
+# Set your database connection
+tributary config set dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
+
+# Set source and target for sync
+tributary config set source_dsn "postgres://user:pass@localhost:5432/prod"
+tributary config set target_dsn "postgres://user:pass@localhost:5432/dev"
+
+# Set default seed parameters
+tributary config set seed_table users
+tributary config set seed_predicate "id = 42"
+
+# Configure AI
+tributary config set ai.provider claude
+tributary config set ai.api_key "sk-ant-your-key-here"
+
+# View all config
+tributary config list
+
+# Get a specific value
+tributary config get dsn
+```
+
+### Security
+
+- Config file is written with `0600` permissions (owner read/write only)
+- DSN strings may contain passwords — the file is not world-readable
+- API keys are stored in the same file with the same protections
+
+---
+
 ## `tributary update`
 
 Updates Tributary to the latest version.
