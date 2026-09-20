@@ -181,6 +181,86 @@ When auto-create is enabled (default), Tributary creates missing target tables w
 
 ---
 
+## `tributary ai`
+
+Natural language interface — describe what you want in plain English and Tributary generates and runs the command.
+
+### Usage
+
+```bash
+tributary ai "sync user admin@example.com"
+```
+
+### Setup (one-time)
+
+```bash
+# Pick a provider (claude, openai, gemini, openrouter, opencode)
+tributary config set ai.provider claude
+
+# Set your API key
+tributary config set ai.api_key "sk-ant-your-key-here"
+
+# (Optional) Set your DSN so the AI knows your schema
+tributary config set dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
+```
+
+### Flags
+
+| Flag | Description | Required | Default |
+| --- | --- | --- | --- |
+| `--dry-run` | Show the generated command without executing it | No | `false` |
+| `--auto` | Skip confirmation prompt and execute immediately | No | `false` |
+| `--provider` | Override AI provider for this invocation | No | — |
+| `--model` | Override the AI model for this invocation | No | — |
+| `--max-tokens` | Override max response tokens | No | `0` |
+| `--format` | Output format: `text` or `json` | No | `text` |
+
+### Examples
+
+```bash
+# Basic usage — AI translates your words into a tributary command
+tributary ai "sync user admin@example.com"
+tributary ai "plan a subset for all active users"
+tributary ai "show me the schema for the orders table"
+
+# Preview what the AI would do (no execution)
+tributary ai --dry-run "sync all orders from last 7 days"
+
+# Skip confirmation prompt
+tributary ai --auto "subset users where team = 'marketing'"
+
+# Override provider/model per invocation
+tributary ai --provider openai "sync user 42"
+tributary ai --provider gemini --model gemini-2.0-flash "plan orders"
+
+# JSON output (for scripting)
+tributary ai --format json "sync user admin@example.com"
+```
+
+### How It Works
+
+1. **Schema load** — If a DSN is configured, Tributary inspects your database schema (tables, columns, foreign keys) and sends that metadata as context to the AI
+2. **AI call** — Your prompt + schema context goes to the configured provider
+3. **Parse** — The AI's JSON response is parsed into a structured command
+4. **Preview** — The command, explanation, and any warnings are displayed
+5. **Execute** — Unless `--dry-run`, the command runs after confirmation (or immediately with `--auto`)
+
+### Supported Providers
+
+| Provider | Default Model |
+| --- | --- |
+| `claude` | `claude-sonnet-4-20250514` |
+| `openai` | `gpt-4o` |
+| `gemini` | `gemini-2.0-flash` |
+| `openrouter` | `anthropic/claude-sonnet-4-20250514` |
+| `opencode` | `claude-sonnet-4-20250514` |
+
+<Note>
+  The AI feature requires an internet connection and a valid API key. It is completely optional — all other Tributary commands work offline.
+</Note>
+
+---
+
 ## `tributary update`
 
 Updates Tributary to the latest version.
