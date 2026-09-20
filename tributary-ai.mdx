@@ -1,0 +1,95 @@
+---
+title: "Tributary AI"
+description: "Use natural language to interact with Tributary"
+---
+
+Tributary ships with a built-in AI assistant that translates natural language into Tributary commands. Describe what you want in plain English and Tributary generates, explains, and optionally executes the right command.
+
+## Setup (one-time)
+
+Pick an AI provider and set your API key:
+
+```bash
+# Choose a provider: claude, openai, gemini, openrouter, or opencode
+tributary config set ai.provider claude
+
+# Set your API key
+tributary config set ai.api_key "sk-ant-your-key-here"
+```
+
+Optionally set your database DSN so the AI can see your schema:
+
+```bash
+tributary config set dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
+```
+
+## Usage
+
+```bash
+# Basic — AI translates your words into a tributary command
+tributary ai "sync user admin@example.com"
+tributary ai "plan a subset for all active users"
+tributary ai "show me the schema for the orders table"
+
+# Preview what the AI would do (no execution)
+tributary ai --dry-run "sync all orders from last 7 days"
+
+# Skip confirmation prompt
+tributary ai --auto "subset users where team = 'marketing'"
+
+# Override provider/model per invocation
+tributary ai --provider openai "sync user 42"
+tributary ai --provider gemini --model gemini-2.0-flash "plan orders"
+
+# JSON output (for scripting)
+tributary ai --format json "sync user admin@example.com"
+```
+
+## Flags
+
+| Flag | Description |
+| --- | --- |
+| `--dry-run` | Show the generated command without executing it |
+| `--auto` | Skip confirmation prompt and execute immediately |
+| `--provider` | Override AI provider for this invocation |
+| `--model` | Override the AI model for this invocation |
+| `--max-tokens` | Override max response tokens |
+| `--format` | Output format: `text` or `json` (default: `text`) |
+
+## How It Works
+
+1. **Schema load** — If a DSN is configured, Tributary inspects your database (table names, columns, foreign keys) and sends that metadata as context to the AI
+2. **AI call** — Your prompt + schema context goes to the configured provider
+3. **Parse** — The AI's JSON response is parsed into a structured command
+4. **Preview** — The command, explanation, and any warnings are displayed
+5. **Execute** — Unless `--dry-run`, the command runs after confirmation (or immediately with `--auto`)
+
+## Supported Providers
+
+| Provider | Default Model | Notes |
+| --- | --- | --- |
+| `claude` | `claude-sonnet-4-20250514` | Anthropic Messages API |
+| `openai` | `gpt-4o` | OpenAI Chat Completions |
+| `gemini` | `gemini-2.0-flash` | Google Generative Language API |
+| `openrouter` | `anthropic/claude-sonnet-4-20250514` | OpenAI-compatible, multi-model |
+| `opencode` | `claude-sonnet-4-20250514` | Local proxy, no API key needed |
+
+## Configuration
+
+| Config Key | Description |
+| --- | --- |
+| `ai.provider` | AI provider: `claude`, `openai`, `gemini`, `openrouter`, or `opencode` |
+| `ai.api_key` | API key for the provider (stored with 0600 permissions) |
+| `ai.model` | Model override (empty = provider default) |
+| `ai.base_url` | Custom API endpoint (empty = provider default) |
+
+## Security
+
+- API keys are stored with `0600` file permissions (same as DSN passwords)
+- Only schema metadata is sent to AI providers — never row data or connection strings
+- Write operations (`sync run`) require confirmation by default
+- The AI never receives your DSN or credentials
+
+<Note>
+The AI feature requires an internet connection and a valid API key. It is completely optional — all other Tributary commands work offline without any AI configuration.
+</Note>
