@@ -134,6 +134,10 @@ Find your error message below. Tributary errors start with `error:` and usually 
     A schema file must end in `.yaml`, `.yml`, or `.json`.
   </Accordion>
 
+  <Accordion title="... already exists; pass --force to overwrite it">
+    `schema init` won't replace an existing file without confirmation. At a terminal it asks first. In CI or a pipe there's nobody to ask, so it refuses. Pass `--force` to overwrite, or `-o <file>` to write somewhere else.
+  </Accordion>
+
   <Accordion title="schema file not found">
     The file passed to `--schema` doesn't exist. Paths are relative to the current directory.
   </Accordion>
@@ -225,7 +229,13 @@ Find your error message below. Tributary errors start with `error:` and usually 
 
 ## AI
 
-See [Tributary AI troubleshooting](/tributary-ai#troubleshooting).
+<AccordionGroup>
+  <Accordion title="not at a terminal, so nobody can confirm the sync">
+    A generated `sync` needs confirmation, and there's no terminal to ask in, for example in CI. Check the command with `--dry-run`, then add `--yes`.
+  </Accordion>
+</AccordionGroup>
+
+For other AI errors, see [Tributary AI troubleshooting](/tributary-ai#troubleshooting).
 
 ## Still stuck?
 

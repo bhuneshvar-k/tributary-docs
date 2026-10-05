@@ -76,7 +76,9 @@ Rows on the target that aren't in the subset are never touched.
 
 ## Plain-language mode asks first
 
-`tributary ai` shows the command it generated and asks for confirmation before any `sync`. The default answer is **no**. Pass `--yes` to skip the prompt, or `--dry-run` to only print the command.
+`tributary ai` shows the command it generated and asks for confirmation before any `sync`. The default answer is **no**. Pass `--yes` to skip the prompt, or `--dry-run` to only print the command. When there's no terminal to ask, such as in CI, the sync is refused unless you pass `--yes`.
+
+`tributary schema init` also asks before overwriting an existing file, and refuses without a terminal unless you pass `--force`.
 
 ## Where your data goes
 

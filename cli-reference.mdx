@@ -231,7 +231,7 @@ tributary schema init --source <name> [options]
 | `-s, --source <name>` | **Required.** Source connection name. |
 | `-o, --output <file>` | Where to write it. Default: `./schema.yaml`. |
 | `--format <format>` | `yaml` (default) or `json`. JSON can't hold comments, so it only lists the tables. |
-| `--force` | Overwrite an existing file. Without it, the command fails if the file exists, even if it appeared while the database was being read. |
+| `--force` | Overwrite an existing file without asking. Without it, Tributary asks `y/N` at a terminal, and refuses when there's no terminal (CI, pipes). |
 
 ```text
 $ tributary schema init --source prod
@@ -300,7 +300,7 @@ tributary ai <request...> --source <name> [options]
 | `-s, --source <name>` | **Required.** Source connection name. |
 | `-T, --target <name>` | Target connection name. Needed for a generated `sync`. Without it, the model only generates `plan` or `inspect`. |
 | `--schema <file>` | Schema file passed to the generated `plan` or `sync`. |
-| `-y, --yes` | Run a generated `sync` without asking. |
+| `-y, --yes` | Run a generated `sync` without asking. Required to run a `sync` when there's no terminal, such as in CI. |
 | `--dry-run` | Only show the generated command. |
 
 ```bash
