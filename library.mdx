@@ -1,0 +1,197 @@
+---
+title: "Use as a library"
+description: "Run plans and syncs from TypeScript with @bhuneshvar-k/tributary-core"
+icon: "code"
+---
+
+The engine behind the CLI is published as its own package, `@bhuneshvar-k/tributary-core`. Use it to run plans and syncs from scripts, test setup, or your own tools.
+
+## Install
+
+```bash
+npm install @bhuneshvar-k/tributary-core
+```
+
+The package is ESM-only and needs Node.js 22.12 or later.
+
+## Sync a subset
+
+```ts
+import { loadSchemaFile, sync } from "@bhuneshvar-k/tributary-core";
+
+const result = await sync({
+  source: process.env.SOURCE_URL!,
+  target: process.env.TARGET_URL!,
+  seeds: [{ table: "public.users", where: "id = 42" }],
+  schema: await loadSchemaFile("schema.yaml"),
+  allowlist: ["localhost"],
+});
+
+console.log(`${result.totalRows} rows upserted (run ${result.runId})`);
+```
+
+The library takes connection strings directly. It doesn't read the CLI's config file, so pass the allowlist yourself.
+
+<Warning>
+  Seed `where` fragments are raw SQL. Never build them from untrusted input, such as a web request. They run inside a read-only transaction as a single statement, but they can still read any data the source role can.
+</Warning>
+
+## Plan a subset
+
+```ts
+import { plan } from "@bhuneshvar-k/tributary-core";
+
+const result = await plan({
+  source: process.env.SOURCE_URL!,
+  seeds: [{ table: "public.orders", where: "id = 1001" }],
+});
+
+for (const t of result.tables) console.log(t.table, t.rows, t.via);
+```
+
+## Options
+
+### `plan(options)`
+
+<ParamField body="source" type="string" required>
+  Source connection string.
+</ParamField>
+
+<ParamField body="seeds" type="Seed[]" required>
+  Where the subset starts. Each seed is `{ table, where }`. `table` must be schema-qualified, such as `"public.users"`. Use `qualifyTable("users")` to add `public.` to a bare name.
+</ParamField>
+
+<ParamField body="schema" type="SchemaFile">
+  App-level relations, from `loadSchemaFile(path)` or `parseSchemaFile(object)`.
+</ParamField>
+
+<ParamField body="traversal" type="&quot;downstream&quot; | &quot;full&quot;" default="downstream">
+  See [Traversal modes](/how-it-works#traversal-modes).
+</ParamField>
+
+<ParamField body="strictCycles" type="boolean" default="false">
+  Throw on a foreign key cycle with no `breakCycle` entry instead of breaking it automatically.
+</ParamField>
+
+### `sync(options)`
+
+Takes every `plan` option, plus:
+
+<ParamField body="target" type="string" required>
+  Target connection string.
+</ParamField>
+
+<ParamField body="allowlist" type="string[]" required>
+  Hosts the target may be on, such as `"localhost"` or `"*.staging.internal"`. An empty array denies every target.
+</ParamField>
+
+<ParamField body="fresh" type="boolean" default="false">
+  Delete the subset's rows from the target first, and don't resume an earlier run.
+</ParamField>
+
+<ParamField body="createSchema" type="boolean" default="true">
+  Create missing target tables. With `false`, a missing table throws.
+</ParamField>
+
+## Results
+
+### `PlanResult`
+
+<ResponseField name="tables" type="PlanTable[]">
+  Tables in load order. Each has `table`, `rows`, `via` (how it was reached, or `"seed"`), and an optional `break` describing a cycle break.
+</ResponseField>
+
+<ResponseField name="totalRows" type="number">
+  Total rows across all tables.
+</ResponseField>
+
+<ResponseField name="breaks" type="AppliedBreak[]">
+  Cycle breaks applied: `{ table, column, auto }`. `auto` is `true` when Tributary chose the break.
+</ResponseField>
+
+<ResponseField name="warnings" type="string[]">
+  Non-fatal problems, such as unknown polymorphic type values.
+</ResponseField>
+
+### `SyncResult`
+
+<ResponseField name="runId" type="string">
+  The run's ID. See [Resume](/reruns-and-resume#what-counts-as-the-same-run).
+</ResponseField>
+
+<ResponseField name="tables" type="SyncTable[]">
+  Per table: `table`, `rowsUpserted`, `rowsBackfilled`, `rowsLeftNull`, and `resumed` (`true` if skipped because an earlier run already loaded the same rows).
+</ResponseField>
+
+<ResponseField name="totalRows" type="number">
+  Total rows upserted.
+</ResponseField>
+
+<ResponseField name="schema" type="SchemaReport">
+  What was created on the target: `typesCreated`, `tablesCreated`, `constraintsCreated`, and `warnings`.
+</ResponseField>
+
+<ResponseField name="breaks" type="AppliedBreak[]">
+  Cycle breaks applied.
+</ResponseField>
+
+<ResponseField name="warnings" type="string[]">
+  Warnings from the walk and from schema creation.
+</ResponseField>
+
+## Schema files in code
+
+Load a file from disk:
+
+```ts
+import { loadSchemaFile } from "@bhuneshvar-k/tributary-core";
+
+const schema = await loadSchemaFile("schema.yaml"); // .yaml, .yml or .json
+```
+
+Or build one inline with the same structure as the file:
+
+```ts
+import { parseSchemaFile } from "@bhuneshvar-k/tributary-core";
+
+const schema = parseSchemaFile({
+  version: 1,
+  tables: {
+    orders: { references: { customer_ref: "users.id" } },
+    employees: { breakCycle: ["manager_id"] },
+  },
+});
+```
+
+Both throw a `ConfigError` listing every problem. Its `issues` property holds them as an array of strings.
+
+## Lower-level building blocks
+
+| Export | What it does |
+| --- | --- |
+| `inspect(source)` | Reads a database's schema: tables, columns, primary keys, foreign keys, and enums. Accepts a connection string or a connected client. |
+| `schemaTemplate(schema, { format })` | Generates a starting schema file, like `tributary schema init`. |
+| `buildGraph(schema, schemaFile)` | Merges foreign keys and schema-file relations into a graph. Throws `ConfigError` if a relation names a missing table or column. |
+| `computeClosure(client, graph, seeds, options)` | Walks the graph from the seeds and returns the subset's rows. |
+| `tableOrder(schema, tables, deferred)` | Orders tables so parents load before children. |
+
+The package also exports its types, such as `Seed`, `SchemaFile`, `PlanResult`, and `SyncResult`, and the `TRAVERSALS` constant.
+
+## Example: seed a test database
+
+```ts test/global-setup.ts
+import { sync } from "@bhuneshvar-k/tributary-core";
+
+export default async function setup() {
+  await sync({
+    source: process.env.FIXTURE_SOURCE_URL!,
+    target: "postgres://localhost:5432/app_test",
+    seeds: [
+      { table: "public.accounts", where: "slug = 'demo'" },
+      { table: "public.plans", where: "true" },
+    ],
+    allowlist: ["localhost"],
+    fresh: true,
+  });
+}
+```

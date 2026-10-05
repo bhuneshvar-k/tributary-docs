@@ -24,7 +24,9 @@
           "cli-reference",
           "privacy",
           "how-it-works",
-          "safety"
+          "safety",
+          "reruns-and-resume",
+          "library"
         ]
       }
     ]
