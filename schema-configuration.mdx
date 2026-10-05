@@ -69,7 +69,9 @@ Commented lines have no effect, so the generated file behaves exactly like havin
 | --- | --- |
 | `-o, --output <file>` | Write somewhere other than `./schema.yaml`. |
 | `--format json` | Write JSON. JSON can't hold comments, so it only lists the tables, without the foreign key comments or `*_id` columns. |
-| `--force` | Overwrite an existing file. Without it, Tributary refuses. |
+| `--force` | Overwrite an existing file without asking. |
+
+If the output file already exists, Tributary asks `Overwrite it?` (default **No**). Answering no prints `kept ./schema.yaml; nothing written`. When there's no terminal to ask, such as in CI or a pipe, it refuses unless you pass `--force`.
 
 ## File format
 
