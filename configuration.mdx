@@ -1,102 +1,142 @@
----
-title: "Configuration"
-description: "User-level configuration for Tributary"
----
+Tributary keeps machine-specific settings in a local config file: named connections, the target allowlist, and AI provider settings. You manage it with `tributary config`.
 
-Tributary stores user-level configuration in `~/.tributary/config.yaml`. This file is optional — all commands work without it via CLI flags and environment variables.
+<Note>
+  These settings describe _your machine_, not your database. Relationships between tables go in the [schema file](/schema-configuration), which you can commit to your repository.
+</Note>
 
-## Precedence
-
-Config values are used as fallbacks when CLI flags and environment variables are not set:
-
-**CLI flags > Environment variables > Config file**
-
-## Config Commands
+## Quick setup
 
 ```bash
-# Set a value
-tributary config set dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
+# Connections
+tributary config set connections.prod.url  'postgres://readonly@prod-db:5432/app'
+tributary config set connections.local.url 'postgres://localhost:5432/app_dev'
 
-# Get a value
-tributary config get dsn
+# Hosts sync may write to
+tributary config set allowlist localhost
 
-# List all values
-tributary config list
-
-# Remove a value
-tributary config unset dsn
-
-# Show config file path
-tributary config path
+# AI provider (optional, only for tributary ai)
+tributary config set ai.provider anthropic
+tributary config set ai.apiKey   'sk-ant-...'
 ```
 
-## Available Config Keys
+## Settings
 
-| Key | Description |
-| --- | --- |
-| `dsn` | Default Postgres connection string (inspect, plan) |
-| `source_dsn` | Default source Postgres connection string (sync run) |
-| `target_dsn` | Default target Postgres connection string (sync run) |
-| `seed_table` | Default seed table name |
-| `seed_predicate` | Default seed predicate (raw SQL WHERE fragment) |
-| `schema_file` | Default path to tributary.schema.yaml |
-| `ai.provider` | AI provider: `claude`, `openai`, `gemini`, `openrouter`, or `opencode` |
-| `ai.api_key` | API key for the AI provider (stored with 0600 permissions) |
-| `ai.model` | AI model override (empty = provider default) |
-| `ai.base_url` | Custom AI API endpoint (empty = provider default) |
+### Connections
 
-## Example Config
+<ParamField path="connections.<name>.url" type="string" required>
+  A Postgres connection URL. `<name>` is the short name you pass to `--source` and `--target`. Names can contain letters, digits, `_`, and `-`.
 
-```yaml
-# ~/.tributary/config.yaml
-dsn: "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
-source_dsn: "postgres://user:pass@localhost:5432/prod?sslmode=disable"
-target_dsn: "postgres://user:pass@localhost:5432/dev?sslmode=disable"
-seed_table: users
-seed_predicate: "id = 42"
-schema_file: "./tributary.schema.yaml"
-ai:
-  provider: claude
-  api_key: "sk-ant-your-key-here"
-  model: "claude-sonnet-4-20250514"
+  ```bash
+  tributary config set connections.staging.url 'postgres://app@staging-db:5432/app?sslmode=require'
+  ```
+</ParamField>
+
+Any standard Postgres URL works, including query parameters such as `sslmode`. Use a Unix socket with `postgres:///app?host=/var/run/postgresql`.
+
+If a command names a connection that doesn't exist, Tributary lists the ones it knows:
+
+```text
+error: no connection named "prd" (known: prod, local); add it with: tributary config set connections.prd.url <postgres-url>
 ```
 
-## Environment Variables
+### Allowlist
 
-| Variable | Description |
+<ParamField path="allowlist" default="[] (deny all)" type="string[]">
+  Hosts that `sync` may write to, set as a comma-separated list. Entries are exact host names, Unix socket directories, or `*.suffix` wildcards.
+
+  ```bash
+  tributary config set allowlist 'localhost,127.0.0.1,*.staging.internal'
+  ```
+</ParamField>
+
+Setting `allowlist` replaces the whole list. An empty list blocks every target. See [Safety](/safety#writes-need-an-allowlist) for the matching rules.
+
+### AI provider
+
+These settings only matter for [`tributary ai`](/tributary-ai).
+
+<ParamField path="ai.provider" default="anthropic" type="string">
+  One of `anthropic`, `openai`, `google`, `openrouter`, or `opencode`. Any other value is rejected.
+</ParamField>
+
+<ParamField path="ai.model" type="string">
+  The model ID. Optional for `anthropic`, `openai`, and `google`, which have defaults. Required for `openrouter` and `opencode`.
+</ParamField>
+
+<ParamField path="ai.apiKey" type="string">
+  The provider's API key. If unset, Tributary uses the provider's usual environment variable, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+</ParamField>
+
+<ParamField path="ai.baseUrl" type="string">
+  A custom API endpoint. Required for `opencode`. Optional for the others, for example to use a proxy.
+</ParamField>
+
+## Managing settings
+
+| Command | What it does |
 | --- | --- |
-| `TRIBUTARY_DSN` | Default database connection string |
-| `TRIBUTARY_SOURCE_DSN` | Source database for sync |
-| `TRIBUTARY_TARGET_DSN` | Target database for sync |
-| `INSTALL_DIR` | Custom install directory for installer script |
+| `tributary config set <key> <value>` | Set a value. |
+| `tributary config get <key>` | Print one value. Prints nothing if it isn't set. |
+| `tributary config unset <key>` | Remove a value. |
+| `tributary config list` | Print every setting as JSON, **secrets included and unmasked**. |
+| `tributary config path` | Print the config file's location. |
 
-Environment variables take precedence over config file values but are overridden by CLI flags.
-
-## Security
-
-<Warning>
-The config file contains sensitive data (database passwords, API keys). Tributary protects it with strict file permissions:
-</Warning>
-
-- Config file: `0600` (owner read/write only)
-- Config directory: `0700` (owner only)
-- DSN strings may contain passwords — the file is never world-readable
-- API keys are stored in the same file with the same protections
-
-## Migrating from Environment Variables
-
-If you currently use environment variables, you can migrate to config file:
+`get` also accepts a parent key. For example, `tributary config get connections` prints every connection as JSON. `set` and `unset` only accept the full keys listed above.
 
 ```bash
-# Set config values
-tributary config set dsn "$TRIBUTARY_DSN"
-tributary config set source_dsn "$TRIBUTARY_SOURCE_DSN"
-tributary config set target_dsn "$TRIBUTARY_TARGET_DSN"
-
-# Verify
-tributary config list
-
-# Then remove the env vars from your shell profile
+tributary config get connections.prod.url
+tributary config unset connections.old.url
 ```
 
-The precedence order ensures a smooth transition — config values only apply when the corresponding env var is not set.
+An unknown key is rejected with the list of valid ones:
+
+```text
+error: unknown config key "conections.prod.url"; valid keys: connections.<name>.url, allowlist, ai.provider, ai.model | ai.apiKey | ai.baseUrl
+```
+
+## Where settings are stored
+
+The config is a JSON file named `config.json`. Its directory is chosen in this order:
+
+| Condition | Directory |
+| --- | --- |
+| `TRIBUTARY_CONFIG_DIR` is set | `$TRIBUTARY_CONFIG_DIR` |
+| Windows | `%APPDATA%\tributary` |
+| `XDG_CONFIG_HOME` is set to an absolute path | `$XDG_CONFIG_HOME/tributary` |
+| Otherwise (macOS and Linux) | `~/.config/tributary` |
+
+Run `tributary config path` to see the exact file.
+
+The file looks like this:
+
+```json ~/.config/tributary/config.json
+{
+  "connections": {
+    "prod": { "url": "postgres://readonly@prod-db:5432/app" },
+    "local": { "url": "postgres://localhost:5432/app_dev" }
+  },
+  "allowlist": ["localhost"],
+  "ai": {
+    "provider": "anthropic",
+    "apiKey": "sk-ant-..."
+  }
+}
+```
+
+<Tip>
+  Use `TRIBUTARY_CONFIG_DIR` to keep separate configs, for example one per project or one for CI:
+
+  ```bash
+  TRIBUTARY_CONFIG_DIR=./.tributary tributary config set allowlist localhost
+  ```
+
+  If you put it inside a repository, add it to `.gitignore`. It contains secrets.
+</Tip>
+
+### Security
+
+The file stores connection strings and API keys in **plaintext**. On macOS and Linux, Tributary keeps the directory at mode `0700` and the file at `0600`. Keep the file off shared machines and out of backups you don't control.
+
+### Migrating from versions before 0.1.0 on macOS
+
+Before version 0.1.0, macOS settings lived in `~/Library/Preferences/tributary`. The first time 0.1.0 or later runs, it moves that file to `~/.config/tributary/config.json` automatically, unless a new file already exists there.
