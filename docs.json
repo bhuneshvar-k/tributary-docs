@@ -14,13 +14,12 @@
         "group": "Get started",
         "pages": [
           "index",
-          "quickstart",
           "installation",
+          "quickstart",
           "schema-configuration",
           "architecture",
           "troubleshooting",
           "tributary-ai",
-          "cli-reference",
           "privacy",
           "safety",
           "reruns-and-resume",
@@ -41,7 +40,9 @@
       },
       {
         "group": "Reference",
-        "pages": []
+        "pages": [
+          "cli-reference"
+        ]
       }
     ]
   },
