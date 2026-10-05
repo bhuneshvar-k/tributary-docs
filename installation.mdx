@@ -1,104 +1,89 @@
----
-title: Installation
-description: "Install Tributary on macOS, Linux, or Windows"
----
+Tributary is a Node.js command-line tool published on npm.
 
-Tributary ships as a single binary with no external dependencies. Choose the installation method that works best for you.
+## Requirements
 
-## Homebrew (macOS/Linux) — Recommended
-
-```bash
-brew tap bhuneshvar-k/tap
-brew trust bhuneshvar-k/tap
-brew install tributary
-```
-
-<Note>
-  `brew trust` is required once per machine for third-party taps. After that, `brew upgrade tributary` works automatically for future versions.
-</Note>
-
-## curl Installer (macOS/Linux)
-
-The fastest way to get started:
-
-```bash
-curl -sSL https://get.tributary.dev | bash
-```
-
-### Options
-
-```bash
-# Install specific version
-curl -sSL https://get.tributary.dev | bash -s -- --version v1.0.0
-
-# Install to custom directory
-curl -sSL https://get.tributary.dev | bash -s -- --to ~/.local/bin
-```
-
-The installer downloads the correct binary for your platform (darwin/linux, amd64/arm64) and places it in your PATH.
-
-## Go Install
-
-If you have Go 1.25+ installed:
-
-```bash
-go install github.com/bhuneshvar-k/tributary/cmd/tributary@latest
-```
-
-This installs the `tributary` binary to `$GOPATH/bin`.
-
-## GitHub Releases
-
-Download the latest binary for your platform from the [Releases](https://github.com/bhuneshvar-k/tributary/releases) page.
-
-Available binaries:
-
-| Platform | Architecture |
+| Requirement | Version |
 | --- | --- |
-| macOS | amd64, arm64 |
-| Linux | amd64, arm64 |
-| Windows | amd64, arm64 |
+| Node.js | 22.12 or later |
+| Source database | PostgreSQL |
+| Target database | PostgreSQL |
+| Operating system | macOS, Linux, or Windows |
 
-## Build from Source
+Check your Node.js version:
 
 ```bash
-git clone https://github.com/bhuneshvar-k/tributary.git
-cd tributary
-make build
-./bin/tributary --version
+node --version
 ```
 
-### Prerequisites
+## Install the CLI
 
-- Go 1.25+
-- Make (for the build script)
+<CodeGroup>
 
-## Verify Installation
+```bash npm
+npm install -g @bhuneshvar-k/tributary
+```
 
-After installation, verify it works:
+```bash pnpm
+pnpm add -g @bhuneshvar-k/tributary
+```
+
+```bash yarn
+yarn global add @bhuneshvar-k/tributary
+```
+
+</CodeGroup>
+
+This installs the `tributary` command globally.
+
+### Run without installing
+
+You can also run Tributary on demand with `npx`:
+
+```bash
+npx @bhuneshvar-k/tributary --help
+```
+
+## Verify the installation
 
 ```bash
 tributary --version
-# tributary version v1.0.0
+tributary --help
 ```
 
-## Auto-Update
+You should see the version number and a list of commands: `inspect`, `plan`, `sync`, `schema`, `config`, and `ai`.
 
-Tributary includes a built-in update checker. When a new version is available, you'll see a notification.
+## Install the library
 
-To update manually:
+To use the engine from your own TypeScript or JavaScript code, install the core package instead:
 
 ```bash
-tributary update
+npm install @bhuneshvar-k/tributary-core
 ```
 
-This downloads and installs the latest version automatically.
+See [Use as a library](/library) for details.
 
-## Environment Variables
+## Upgrade
 
-| Variable | Description | Default |
-| --- | --- | --- |
-| `TRIBUTARY_DSN` | Default database connection string | — |
-| `TRIBUTARY_SOURCE_DSN` | Source database for sync | — |
-| `TRIBUTARY_TARGET_DSN` | Target database for sync | — |
-| `INSTALL_DIR` | Custom install directory for installer script | `/usr/local/bin` |
+Re-run the install command to get the latest version:
+
+```bash
+npm install -g @bhuneshvar-k/tributary@latest
+```
+
+## Uninstall
+
+```bash
+npm uninstall -g @bhuneshvar-k/tributary
+```
+
+Your settings live in a separate file and are not removed. Run `tributary config path` before uninstalling to find it, then delete it if you no longer need it. See [Configuration](/configuration#where-settings-are-stored).
+
+<Note>
+  Upgrading from the older Go version (now archived as `tributary-go`)? The TypeScript version is a different tool with a new command set. Connections live in a config file instead of DSN flags, and checkpoints live in the target database instead of a local SQLite file.
+</Note>
+
+## Next step
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Set up your connections and copy your first subset.
+</Card>
