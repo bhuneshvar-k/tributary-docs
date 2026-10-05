@@ -33,7 +33,7 @@ A **seed** is a table plus a SQL `WHERE` fragment. Every row the fragment matche
 -t users -w "email = 'admin@example.com'"
 ```
 
-- Bare table names resolve to the `public` schema. Use `schema.table` for anything else.
+- Bare table names resolve to the schema file's `defaultSchema`, which is `public` unless you change it or have no schema file. Use `schema.table` for anything else.
 - You can pass several seeds. Repeat the `-t`/`-w` pair.
 - The fragment is raw SQL, so you can use anything a `WHERE` clause allows: `created_at > now() - interval '1 day'`, `id IN (1, 2, 3)`, or `true` for every row.
 - Every seed table needs a primary key. Tributary uses primary keys to identify rows.

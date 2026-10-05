@@ -32,9 +32,10 @@ The CLI is a thin layer. It parses flags, resolves connection names and the sche
 | --- | --- |
 | `catalog.ts` | Types for the introspected schema: `Table`, `Column`, `ForeignKey`, `Schema`. |
 | `inspect.ts` | Reads tables, columns, primary keys, foreign keys, and enums from `information_schema` and `pg_catalog`. |
-| `schema-file.ts` | Parses and validates schema files (YAML/JSON) into relations and cycle breaks. |
-| `config.ts` | Shared types: `Seed`, `Relation`, `Traversal`, `ConfigError`. |
-| `graph.ts` | Builds the table graph from foreign keys plus declared relations. Indexes edges both ways and finds cycles. |
+| `schema-file.ts` | Parses and validates schema files (YAML/JSON) into listed tables, relations, and cycle breaks. |
+| `model.ts` | Shared types and helpers: `Seed`, `Relation`, `CycleBreak`, `Traversal`, `SchemaFileError`, `parseTableName`, `qualifyTable`. |
+| `schema-template.ts` | Generates the starting schema file for `tributary schema init`. |
+| `graph.ts` | Builds the table graph from foreign keys plus declared relations. Indexes edges both ways and finds cycles (Tarjan). `checkSchemaFile` reports every way a schema file doesn't fit a database. |
 | `closure.ts` | The walk: computes the subset from the seeds, applies traversal rules and cycle breaks. Decides which columns are deferred. |
 | `order.ts` | Topologically sorts tables for loading. |
 | `plan.ts` | `computeSubset` (inspect, graph, closure, order) and `plan`. |
@@ -103,6 +104,8 @@ Each step is one parameterized `SELECT * FROM table WHERE col = $1 ...`. The see
 ### Checkpoints commit with the data
 
 Each table's upsert and its checkpoint row commit in one transaction on the target. A crash can't leave a table loaded but unrecorded, or recorded but not loaded. The checkpoint stores a SHA-256 fingerprint of the table's rows, so a resume reloads any table whose source data changed.
+
+The run ID hashes the source address, the seeds, and a canonical form of the schema file's relations and cycle breaks. The canonical form drops declaration locations and sorts entries, so cosmetic edits to the file keep the same run ID.
 
 ### Batching
 

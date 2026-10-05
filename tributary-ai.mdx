@@ -87,7 +87,7 @@ tributary ai "<request>" --source <name> [--target <name>] [options]
 | Option | Description |
 | --- | --- |
 | `-s, --source <name>` | **Required.** The connection whose schema the model sees, and the source of the generated command. |
-| `-T, --target <name>` | The target connection. Required when the request turns into a `sync`. |
+| `-T, --target <name>` | The target connection. Without it, `sync` isn't offered to the model: a request to copy data becomes a `plan` instead, with a warning saying so. |
 | `--schema <file>` | Schema file to pass to the generated `plan` or `sync`. |
 | `-y, --yes` | Run a generated `sync` without asking. |
 | `--dry-run` | Only print the generated command. Don't run anything. |
@@ -110,6 +110,7 @@ How the model decides:
 - Words like _copy_, _sync_, _load_, or _migrate_ mean `sync`. Words like _preview_, _how many_, or _what would_ mean `plan`.
 - `--traversal full` is only used if you ask for related data beyond the seed's own.
 - `--fresh` is only used if you ask for a clean reload.
+- Without `--target`, the model can't choose `sync`. It falls back to `plan` and tells you in a warning, so you can preview first and add `--target` when you're ready.
 - If a table or column you name doesn't exist, the model picks the closest match and tells you in a warning.
 - If the request is ambiguous, the model picks the most likely meaning and states its assumption.
 
@@ -143,6 +144,7 @@ Warnings appear in yellow under the generated command. Read them before you conf
 | --- | --- |
 | `set a model for openrouter: tributary config set ai.model <model-id>` | The provider has no default model. Set `ai.model`. |
 | `set the endpoint for opencode: tributary config set ai.baseUrl <url>` | Set `ai.baseUrl` to your endpoint. |
-| `the request needs a sync: pass --target <name> to say where to` | Add `--target`. |
+| `the model asked for a sync, but no --target was given` | Rare, because the model is told `sync` isn't available without a target. Add `--target`, or rephrase the request as a preview. |
+| You asked to copy data but got a `plan` | You didn't pass `--target`. Add it to get a `sync`. |
 | `the model returned an invalid command: ...` | The model's answer didn't fit the expected shape. Rephrase the request, name the table explicitly, or try a stronger model. |
 | An authentication error from the provider | Check `ai.apiKey` or the provider's environment variable. |

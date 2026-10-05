@@ -66,10 +66,10 @@ The **run ID** is a hash of:
 
 - The source's host, port, and database name
 - The seeds (tables and `WHERE` fragments)
-- The schema file's relations and cycle breaks
+- What the schema file's relations and cycle breaks mean
 - `--traversal` and `--strict-cycles`
 
-Change any of these and it's a new run. The run ID is printed at the end of every sync: `(run 3f9a1c0d2b7e4a61)`.
+Change any of these and it's a new run. Cosmetic edits to the schema file don't count: reordering keys, or writing `public.orders` instead of `orders`, keeps the same run ID. The run ID is printed at the end of every sync: `(run 3f9a1c0d2b7e4a61)`.
 
 ### Changed source data is never skipped
 

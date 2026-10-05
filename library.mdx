@@ -58,11 +58,11 @@ for (const t of result.tables) console.log(t.table, t.rows, t.via);
 </ParamField>
 
 <ParamField body="seeds" type="Seed[]" required>
-  Where the subset starts. Each seed is `{ table, where }`. `table` must be schema-qualified, such as `"public.users"`. Use `qualifyTable("users")` to add `public.` to a bare name.
+  Where the subset starts. Each seed is `{ table, where }`. `table` must be schema-qualified, such as `"public.users"`. Use `qualifyTable("users")` to add `public.`, or `qualifyTable("users", schema.defaultSchema)` to resolve it the way the CLI does.
 </ParamField>
 
 <ParamField body="schema" type="SchemaFile">
-  App-level relations, from `loadSchemaFile(path)` or `parseSchemaFile(object)`.
+  App-level relations, from `loadSchemaFile(path)` or `parseSchemaFile(input)`.
 </ParamField>
 
 <ParamField body="traversal" type="&quot;downstream&quot; | &quot;full&quot;" default="downstream">
@@ -149,7 +149,7 @@ import { loadSchemaFile } from "@bhuneshvar-k/tributary-core";
 const schema = await loadSchemaFile("schema.yaml"); // .yaml, .yml or .json
 ```
 
-Or build one inline with the same structure as the file:
+Or build one inline. `parseSchemaFile` accepts an object with the same structure as the file, or the file's YAML or JSON text:
 
 ```ts
 import { parseSchemaFile } from "@bhuneshvar-k/tributary-core";
@@ -161,9 +161,31 @@ const schema = parseSchemaFile({
     employees: { breakCycle: ["manager_id"] },
   },
 });
+
+const fromText = parseSchemaFile("version: 1\ntables:\n  audit_logs:\n    ignore: [actor_id]\n");
 ```
 
-Both throw a `ConfigError` listing every problem. Its `issues` property holds them as an array of strings.
+The parsed `SchemaFile` has four fields:
+
+| Field | Contents |
+| --- | --- |
+| `defaultSchema` | The schema bare names resolve to. |
+| `tables` | Every table the file lists, as `{ table, at }`, including tables with nothing declared. |
+| `relations` | Declared references, polymorphic references, and ignores. |
+| `cycleBreaks` | `breakCycle` entries, as `{ table, column, at }`. |
+
+Both functions throw a `SchemaFileError` listing every problem. Its `issues` property holds them as an array of strings, and `file` names the file when there is one.
+
+### Check a schema file against a database
+
+`checkSchemaFile` returns every way a schema file doesn't fit a database, without throwing. This is what `tributary schema validate --source` runs.
+
+```ts
+import { checkSchemaFile, inspect, loadSchemaFile } from "@bhuneshvar-k/tributary-core";
+
+const problems = checkSchemaFile(await inspect(process.env.SOURCE_URL!), await loadSchemaFile("schema.yaml"));
+if (problems.length) console.error(problems.join("\n"));
+```
 
 ## Lower-level building blocks
 
@@ -171,11 +193,17 @@ Both throw a `ConfigError` listing every problem. Its `issues` property holds th
 | --- | --- |
 | `inspect(source)` | Reads a database's schema: tables, columns, primary keys, foreign keys, and enums. Accepts a connection string or a connected client. |
 | `schemaTemplate(schema, { format })` | Generates a starting schema file, like `tributary schema init`. |
-| `buildGraph(schema, schemaFile)` | Merges foreign keys and schema-file relations into a graph. Throws `ConfigError` if a relation names a missing table or column. |
+| `buildGraph(schema, schemaFile)` | Merges foreign keys and schema-file relations into a graph. Throws `SchemaFileError` if a relation or cycle break names a missing table or column, or a cycle break isn't in a cycle. |
+| `checkSchemaFile(schema, schemaFile)` | Returns every problem as a list of strings, including listed tables that don't exist. |
+| `parseTableName(name, defaultSchema)` | Splits `"table"` or `"schema.table"` into `{ schema, table }`. |
 | `computeClosure(client, graph, seeds, options)` | Walks the graph from the seeds and returns the subset's rows. |
 | `tableOrder(schema, tables, deferred)` | Orders tables so parents load before children. |
 
-The package also exports its types, such as `Seed`, `SchemaFile`, `PlanResult`, and `SyncResult`, and the `TRAVERSALS` constant.
+The package also exports its types, such as `Seed`, `SchemaFile`, `CycleBreak`, `PlanResult`, and `SyncResult`, plus the `TRAVERSALS` constant and `emptySchemaFile()`.
+
+<Note>
+  Upgrading from an earlier 0.1.0 build? `ConfigError` is now `SchemaFileError`, `SchemaFile.dependencyBreaks` is now `cycleBreaks`, and the `EMPTY_SCHEMA_FILE` constant is now the `emptySchemaFile()` function.
+</Note>
 
 ## Example: seed a test database
 

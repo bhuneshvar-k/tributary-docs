@@ -53,7 +53,7 @@ Find your error message below. Tributary errors start with `error:` and usually 
 <AccordionGroup>
   <Accordion title="every --seed-table needs a --where">
     ```text
-    error: every --seed-table needs a --where (got 2 tables and 1 where)
+    error: every --seed-table needs a --where (got 2 --seed-table, 1 --where)
     ```
 
     Seeds are pairs. Each `-t` matches the `-w` in the same position. To select every row of a table, use `-w true`.
@@ -64,7 +64,7 @@ Find your error message below. Tributary errors start with `error:` and usually 
   </Accordion>
 
   <Accordion title='no such table "..." in source schema'>
-    The seed table doesn't exist. Bare names resolve to `public`. Use `schema.table` for other schemas, such as `-t billing.invoices`. Run `tributary inspect --source prod` to list tables.
+    The seed table doesn't exist. Bare names resolve to the schema file's `defaultSchema`, which is `public` by default. Use `schema.table` for other schemas, such as `-t billing.invoices`. Run `tributary inspect --source prod` to list tables.
   </Accordion>
 
   <Accordion title='table "..." has no primary key'>
@@ -92,7 +92,7 @@ Find your error message below. Tributary errors start with `error:` and usually 
   </Accordion>
 
   <Accordion title="Expected rows are missing from the plan">
-    - The relationship probably isn't a real foreign key. Declare it with `references` or `polymorphic` in the schema file. `tributary schema init` suggests candidates for `*_id` columns.
+    - The relationship probably isn't a real foreign key. Declare it with `references` or `polymorphic` in the schema file. `tributary schema init` lists every `*_id` column that has no foreign key, so you can fill in its target.
     - Under `downstream` traversal, required parents don't fan out to their other children. See [Traversal modes](/how-it-works#traversal-modes).
     - Check the output for `no schema file: following database foreign keys only`. If you see it, Tributary didn't find your schema file. Run from the directory that contains it, or pass `--schema`.
   </Accordion>
@@ -124,6 +124,14 @@ Find your error message below. Tributary errors start with `error:` and usually 
 
   <Accordion title="... is not part of any foreign key cycle">
     A `breakCycle` entry names a column that isn't in a cycle. Remove it, or fix the table or column name.
+  </Accordion>
+
+  <Accordion title='no such table "..." in the database'>
+    `schema validate --source` found a table in the file that the database doesn't have, even if nothing is declared under it. Remove the entry, or fix its name. `plan` and `sync` ignore such empty entries, but validation reports them so the file stays clean.
+  </Accordion>
+
+  <Accordion title="unsupported file type">
+    A schema file must end in `.yaml`, `.yml`, or `.json`.
   </Accordion>
 
   <Accordion title="schema file not found">

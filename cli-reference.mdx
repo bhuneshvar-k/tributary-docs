@@ -53,7 +53,7 @@ tributary plan --source <name> -t <table> -w <sql> [-t <table> -w <sql> ...] [op
 | Flag | Description |
 | --- | --- |
 | `-s, --source <name>` | **Required.** Source connection name. |
-| `-t, --seed-table <table>` | Seed table, such as `users` or `billing.invoices`. Repeatable. |
+| `-t, --seed-table <table>` | Seed table, such as `users` or `billing.invoices`. A bare name resolves in the schema file's `defaultSchema` (default `public`). Repeatable. |
 | `-w, --where <sql>` | SQL `WHERE` fragment for the `--seed-table` in the same position, such as `"id = 42"`. Repeatable. |
 | `--schema <file>` | Schema file. Default: `./schema.yaml`, `./schema.yml`, or `./schema.json`, whichever exists first. |
 | `--traversal <mode>` | `downstream` (default) or `full`. See [Traversal modes](/how-it-works#traversal-modes). |
@@ -220,7 +220,7 @@ System schemas and Tributary's own `_tributary` schema are left out.
 
 ## schema init
 
-Writes a starting schema file from the source database. Guessed references are written as comments for you to review.
+Writes a starting schema file from the source database: every table by its schema-qualified name, its real foreign keys as comments, and each `*_id` column without a foreign key as a commented line for you to fill in. Nothing is guessed.
 
 ```bash
 tributary schema init --source <name> [options]
@@ -231,11 +231,11 @@ tributary schema init --source <name> [options]
 | `-s, --source <name>` | **Required.** Source connection name. |
 | `-o, --output <file>` | Where to write it. Default: `./schema.yaml`. |
 | `--format <format>` | `yaml` (default) or `json`. JSON can't hold comments, so it only lists the tables. |
-| `--force` | Overwrite an existing file. |
+| `--force` | Overwrite an existing file. Without it, the command fails if the file exists, even if it appeared while the database was being read. |
 
 ```text
 $ tributary schema init --source prod
-wrote ./schema.yaml: 42 tables, 17 guessed references to review
+wrote ./schema.yaml: 42 tables, 17 *_id columns to fill in
 ```
 
 See [Schema file](/schema-configuration#create-a-schema-file).
@@ -244,7 +244,7 @@ See [Schema file](/schema-configuration#create-a-schema-file).
 
 ## schema validate
 
-Checks a schema file's format and, with `--source`, that its tables and columns exist in the database. Exits non-zero on any problem.
+Checks a schema file's format and, with `--source`, that every table it lists (even one with nothing under it) and every column it names exists in the database. Exits non-zero on any problem.
 
 ```bash
 tributary schema validate [--schema <file>] [--source <name>]
@@ -298,8 +298,8 @@ tributary ai <request...> --source <name> [options]
 | Flag | Description |
 | --- | --- |
 | `-s, --source <name>` | **Required.** Source connection name. |
-| `-T, --target <name>` | Target connection name, for a generated `sync`. |
-| `--schema <file>` | Schema file passed to the generated command. |
+| `-T, --target <name>` | Target connection name. Needed for a generated `sync`. Without it, the model only generates `plan` or `inspect`. |
+| `--schema <file>` | Schema file passed to the generated `plan` or `sync`. |
 | `-y, --yes` | Run a generated `sync` without asking. |
 | `--dry-run` | Only show the generated command. |
 
