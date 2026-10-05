@@ -1,273 +1,246 @@
----
-title: Schema Configuration
-description: "Define custom relationships with tributary.schema.yaml"
----
+Tributary follows real foreign keys automatically. Many applications also have relationships the database doesn't enforce, such as Rails or Django associations, polymorphic columns, or composite references. You describe those in a **schema file**.
 
-Use `tributary.schema.yaml` when your database has relationships that aren't enforced by foreign keys — or when you need to override or suppress discovered constraints.
+The schema file describes your _database_, not a single run. It holds no seeds and no connection strings, so you can commit it to your repository and share it with your team.
 
-## When to Use a Schema File
+## When you need one
 
-You **don't** need a schema file if your database has proper foreign key constraints for every relationship you care about. Tributary automatically discovers these from `pg_catalog`.
+You need a schema file when:
 
-You **do** need one when:
+- A column points at another table but has no `FOREIGN KEY` constraint, for example `orders.customer_ref`.
+- A column points at different tables depending on a type column, for example `comments.subject_id` with `subject_type`.
+- A real foreign key pulls in data you don't want, for example `audit_logs.actor_id`.
+- Your schema has foreign key cycles and you want to choose where they break.
 
-- Your app uses **soft foreign keys** (no DB constraint — common in Rails/ActiveRecord)
-- You have **composite keys** spanning multiple columns
-- You use **polymorphic associations** (a type column determines which table a FK points to)
-- You want to **ignore** a FK the resolver shouldn't follow
-- You need to **break cycles** explicitly
+If none of these apply, you can skip the schema file. Tributary then follows database foreign keys only.
 
-## File Location
+## Create a schema file
 
-The default file name is `tributary.schema.yaml` in the current directory. Pass it explicitly with `--schema-file`:
+The fastest way to start is to generate one from your database:
 
 ```bash
-tributary plan --schema-file path/to/tributary.schema.yaml ...
+tributary schema init --source prod
 ```
 
-## Schema File Format
+This writes `./schema.yaml` with:
 
-The schema file is a YAML document with two optional top-level keys: `relations` and `dependency_breaks`.
+- Every table in the source database.
+- Each real foreign key as a **comment**, so you can see what's already followed.
+- A **commented guess** for every `*_id` column without a foreign key, based on the column name.
 
-### Top-Level Structure
-
-```yaml
-# tributary.schema.yaml
-
-relations:
-  # List of relationship declarations (see below)
-  - from: table_a.column_x
-    to: table_b.column_y
-  # ... more relations
-
-dependency_breaks:
-  # List of cycle-breaking declarations (see below)
-  - table: table_name
-    column: column_name
-  # ... more breaks
+```yaml schema.yaml (generated)
+# Tributary schema file: the relationships your database doesn't declare.
+# Real foreign keys are followed automatically and shown as comments.
+# Review the guessed references and uncomment the right ones.
+version: 1
+defaultSchema: public
+tables:
+  orders:
+    # user_id -> users.id  (database foreign key, followed already)
+    references:
+      # customer_id: customers.id   # guessed from the column name
+  comments:
+    references:
+      # subject_id:   # no table matches "subject"; fill in "table.column"
 ```
 
-Both `relations` and `dependency_breaks` are optional. You can include one, both, or neither.
+Review the guesses and uncomment the right ones. Nothing guessed is active until you uncomment it.
 
-### Column Reference Format
-
-Every column reference uses the format `table_name.column_name`:
-
-```yaml
-from: orders.user_id    # table = orders, column = user_id
-to: users.id            # table = users,  column = id
-```
-
-For composite keys, use YAML arrays:
-
-```yaml
-from: [line_items.order_id, line_items.tenant_id]
-to: [orders.id, orders.tenant_id]
-```
-
-Array elements must be in the same order on both sides — the first `from` column pairs with the first `to` column, and so on.
-
-### Schema-Qualified References
-
-By default, unqualified table names resolve to the `public` schema. To reference a table in a different schema, prefix it:
-
-```yaml
-# Unqualified — resolves to public.users
-from: orders.user_id
-to: users.id
-
-# Schema-qualified — resolves to inventory.warehouse_items
-from: inventory.warehouse_items.product_id
-to: catalog.products.id
-```
-
-### YAML Syntax Rules
-
-| Rule | Example |
+| Option | Description |
 | --- | --- |
-| Use lowercase snake_case for table and column names | `orders.user_id` ✓, `Orders.UserID` ✗ |
-| Wrap values with special characters in quotes | `from: "table.with.dots".column` |
-| Use YAML arrays `[]` for composite keys | `from: [a.x, b.y]` |
-| Use YAML maps `{}` for polymorphic targets | `targets: { Post: posts.id }` |
-| Comments start with `#` | `# This is a comment` |
+| `-o, --output <file>` | Write somewhere other than `./schema.yaml`. |
+| `--format json` | Write JSON. JSON can't hold comments, so it only lists the tables, without guesses. |
+| `--force` | Overwrite an existing file. Without it, Tributary refuses. |
 
-### Valid vs. Invalid References
+## File format
 
-<Tabs>
-  <Tab title="Valid">
-    ```yaml
-    relations:
-      # Simple single-column reference
-      - from: orders.user_id
-        to: users.id
-    
-      # Composite key
-      - from: [line_items.order_id, line_items.tenant_id]
-        to: [orders.id, orders.tenant_id]
-    
-      # Schema-qualified
-      - from: inventory.warehouse_items.product_id
-        to: catalog.products.id
-    ```
-  </Tab>
-  <Tab title="Invalid">
-    ```yaml
-    relations:
-      # Missing column (only table name)
-      - from: orders
-        to: users
-    
-      # Array length mismatch (composite key)
-      - from: [line_items.order_id, line_items.tenant_id]
-        to: [orders.id]  # Should have 2 columns
-    
-      # Empty reference
-      - from: .user_id
-        to: .id
-    ```
-  </Tab>
-</Tabs>
+A schema file is YAML (`.yaml` or `.yml`) or JSON (`.json`). Both use the same structure.
 
-## Supported Relation Types
-
-### Soft Foreign Key
-
-A relationship that exists in your application code but has no database constraint.
-
-```yaml
-relations:
-  - from: orders.user_id
-    to: users.id
+```yaml schema.yaml
+version: 1                  # required
+defaultSchema: public       # optional; bare table names resolve here
+tables:
+  orders:
+    references:
+      customer_ref: users.id                                  # column -> table.column
+  line_items:
+    references:
+      "tenant_id, order_id": [orders.tenant_id, orders.id]    # composite, paired in order
+  comments:
+    polymorphic:
+      subject_id:
+        typeColumn: subject_type
+        targets: { Post: posts.id, Photo: media.photos.id }   # discriminator value -> table.column
+  audit_logs:
+    ignore: [actor_id]          # don't follow this real foreign key
+  employees:
+    breakCycle: [manager_id]    # cut a FK cycle: not followed, loaded NULL, backfilled
 ```
 
-This tells Tributary: "Every `orders.user_id` value references a `users.id` value — follow this edge during the closure walk."
+### Top-level fields
 
-### Composite Key
+<ParamField path="version" type="1" required>
+  The file format version. Must be `1`.
+</ParamField>
 
-When a foreign key spans multiple columns:
+<ParamField path="defaultSchema" default="public" type="string">
+  The Postgres schema that bare table names resolve to. `schema init` picks `public` if it has tables, otherwise the schema with the most tables.
+</ParamField>
 
-```yaml
-relations:
-  - from: [line_items.order_id, line_items.tenant_id]
-    to: [orders.id, orders.tenant_id]
-```
+<ParamField path="tables" type="object">
+  One entry per table that needs configuration. Keys are `table` or `schema.table`, such as `"billing.invoices"`. Tables you don't list keep their default behavior.
+</ParamField>
 
-Column pairs are matched by position — the first `from` column references the first `to` column, and so on.
+Each table entry can contain `references`, `polymorphic`, `ignore`, and `breakCycle`. Any other key is an error. Every section is optional, and a section with only comments under it is fine.
 
-### Polymorphic Association
+### Naming tables and columns
 
-A Rails/ActiveRecord pattern where a type column determines which table a FK points to:
+| Form | Example | Means |
+| --- | --- | --- |
+| `table` | `users` | `users` in `defaultSchema` |
+| `schema.table` | `billing.invoices` | A table in another schema |
+| `table.column` | `users.id` | A column in a `defaultSchema` table |
+| `schema.table.column` | `media.photos.id` | A column in another schema |
 
-```yaml
-relations:
-  - from: comments.commentable_id
-    polymorphic_type: comments.commentable_type
-    targets:
-      Post: posts.id
-      Photo: photos.id
-```
+## `references`
 
-When `comments.commentable_type = 'Post'`, the `commentable_id` references `posts.id`. When it's `'Photo'`, it references `photos.id`.
-
-**Constraints:**
-
-- `polymorphic_type` must be a column on the same table as `from`
-- Every key in `targets` must match a value that appears in the type column
-- Every target table and column must exist in the catalog
-
-### Ignore FK Edge
-
-Suppress a real FK constraint the resolver shouldn't follow — useful for self-referencing audit tables or circular references that would explode the subset:
+Declares a column that points at another table, like a foreign key the database doesn't have.
 
 ```yaml
-relations:
-  - ignore: audit_logs.actor_id
+tables:
+  orders:
+    references:
+      customer_ref: users.id
+      billing_account: billing.accounts.id
 ```
 
-**Constraints:**
+- The key is a column on this table.
+- The value is the referenced `table.column`.
 
-- The named column must be part of a catalog-discovered FK
-- If multiple FK constraints on the same table use that column, the ignore is ambiguous
+### Composite references
 
-### Dependency Breaks (Cycle Handling)
-
-Cycles in the FK graph (e.g. a self-referencing `manager_id` on an `employees` table) must be broken somewhere. Tributary auto-breaks cycles by default, but you can pin the break point explicitly:
+For a multi-column reference, list the columns separated by commas in the key, and the targets as a list in the same order:
 
 ```yaml
-dependency_breaks:
-  - table: employees
-    column: manager_id
+tables:
+  line_items:
+    references:
+      "tenant_id, order_id": [orders.tenant_id, orders.id]
 ```
 
-When a cycle is detected through this edge, the walker stops following it — preventing an unbounded traversal up the management hierarchy.
+Rules:
 
-**Constraints:**
+- The number of columns must match the number of targets.
+- All targets must be on the same table.
+- A column can't reference itself.
 
-- The named table.column must participate in a detected cycle
-- If `--strict-cycles` is used, any unresolved cycle becomes a hard error
+## `polymorphic`
 
-## Complete Example
+Declares a column whose target table depends on a **discriminator** column. This is the pattern Rails calls a polymorphic association.
 
 ```yaml
-# tributary.schema.yaml
-#
-# Declares relationships pg_catalog can't see: soft FKs, composite keys,
-# and polymorphic associations. Also the place to suppress a real FK the
-# resolver shouldn't follow, and to control how cycles get broken.
-
-relations:
-  # soft FK — no DB constraint
-  - from: orders.user_id
-    to: users.id
-
-  # composite key
-  - from: [line_items.order_id, line_items.tenant_id]
-    to: [orders.id, orders.tenant_id]
-
-  # polymorphic association — target depends on a type column
-  - from: comments.commentable_id
-    polymorphic_type: comments.commentable_type
-    targets:
-      Post: posts.id
-      Photo: photos.id
-
-  # suppress a real FK the resolver shouldn't follow
-  - ignore: audit_logs.actor_id
-
-# Cycles in the FK graph are auto-broken by default, but that guess
-# can be wrong — pin it explicitly here instead.
-dependency_breaks:
-  - table: employees
-    column: manager_id
+tables:
+  comments:
+    polymorphic:
+      subject_id:
+        typeColumn: subject_type
+        targets:
+          Post: posts.id
+          Photo: media.photos.id
 ```
 
-## Validation
+For a `comments` row with `subject_type = 'Post'` and `subject_id = 7`, Tributary follows the reference to `posts.id = 7`.
 
-Tributary validates your schema file against the actual database catalog before building the graph. Every relation is checked:
+It works in both directions. When a `posts` row is in the subset and fans out to its children, Tributary finds comments with `subject_type = 'Post'` and a matching `subject_id`.
 
-- Referenced tables must exist
-- Referenced columns must exist on those tables
-- Polymorphic type column must be on the same table as `from`
-- Target tables and columns must exist
-- `ignore` entries must match a catalog-discovered FK
-- `dependency_breaks` entries must name an edge participating in a detected cycle
+<ParamField path="typeColumn" type="string" required>
+  The discriminator column, on the same table.
+</ParamField>
 
-All errors are aggregated and reported at once, so you can fix multiple issues in one pass.
+<ParamField path="targets" type="object" required>
+  A map from discriminator value to `table.column`. Needs at least one entry.
+</ParamField>
 
-## Schema-Qualified References
+If Tributary meets a discriminator value that isn't in `targets`, it skips that reference and prints a warning:
 
-Table references can be schema-qualified:
+```text
+warning: public.comments.subject_type: unrecognized polymorphic type value "Video", no matching target in the schema file; skipped
+```
+
+## `ignore`
+
+Tells Tributary **not** to follow a real foreign key. Use it for references that would pull in unrelated data, such as audit actors or "last edited by" columns.
 
 ```yaml
-relations:
-  - from: inventory.warehouse_items.product_id
-    to: catalog.products.id
+tables:
+  audit_logs:
+    ignore: [actor_id]
 ```
 
-Unqualified references default to the `public` schema:
+- The column must be part of exactly one real foreign key on that table. Tributary reports an error otherwise.
+- The constraint still exists on the target, so the column is loaded `NULL` first and backfilled afterwards where the referenced row happens to be in the subset. Otherwise it stays `NULL`.
+- The column must therefore be nullable.
+
+## `breakCycle`
+
+Chooses where a foreign key cycle is cut. See [Cycles](/how-it-works#cycles) for the full explanation.
 
 ```yaml
-relations:
-  - from: orders.user_id  # resolves to public.orders.user_id
-    to: users.id          # resolves to public.users.id
+tables:
+  employees:
+    breakCycle: [manager_id]
 ```
+
+A `breakCycle` column:
+
+- Is not followed during the walk.
+- Is loaded `NULL`, then backfilled where the referenced row is in the subset.
+- Must be part of a foreign key cycle. Tributary reports an error if it isn't.
+- Must be nullable.
+
+Without a `breakCycle` entry, Tributary breaks cycles automatically and tells you in the plan. Pass `--strict-cycles` to make an undeclared cycle an error.
+
+## Which file is used
+
+| Situation | File used |
+| --- | --- |
+| You pass `--schema <file>` | That file. It's an error if it doesn't exist. |
+| You don't pass `--schema` | The first of `./schema.yaml`, `./schema.yml`, `./schema.json` that exists, in the current directory. |
+| None of those exist | No schema file. Only database foreign keys are followed. |
+
+Every run prints which file it used, for example `using schema ./schema.yaml`, or that it found none.
+
+## Validate a schema file
+
+```bash
+# Check the format only
+tributary schema validate
+
+# Also check that every table and column exists in the database
+tributary schema validate --source prod
+
+# Check a specific file
+tributary schema validate --schema config/tributary.yaml --source prod
+```
+
+Tributary reports every problem at once, with its location in the file:
+
+```text
+error: ./schema.yaml: invalid schema file:
+  - tables.line_items.references."tenant_id, order_id": 2 columns but 1 target column
+  - tables.comments.polymorphic.subject_id.targets: needs at least one discriminator value -> "table.column"
+```
+
+`schema validate` exits with a non-zero code on any problem, so you can run it in CI:
+
+```yaml .github/workflows/schema.yml
+- run: npx @bhuneshvar-k/tributary schema validate
+```
+
+<Tip>
+  Without `--source`, validation only checks the file's structure. Add `--source` to catch typos in table and column names, and `breakCycle` entries that aren't part of a cycle.
+</Tip>
+
+## Good to know
+
+- Declared `references` and `polymorphic` entries change which rows are collected. They don't change the load order, because the target only enforces real foreign keys.
+- `plan` and `sync` re-read the schema file on every run. Editing it changes the run ID, so a changed file starts a new run instead of resuming an old one. See [Re-runs and resume](/reruns-and-resume#resume-after-an-interruption).
