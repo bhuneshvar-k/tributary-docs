@@ -11,23 +11,37 @@
   "navigation": {
     "pages": [
       {
-        "group": "Getting Started",
+        "group": "Get started",
         "pages": [
           "index",
           "quickstart",
           "installation",
           "schema-configuration",
           "architecture",
-          "configuration",
           "troubleshooting",
           "tributary-ai",
           "cli-reference",
           "privacy",
-          "how-it-works",
           "safety",
           "reruns-and-resume",
           "library"
         ]
+      },
+      {
+        "group": "Core concepts",
+        "pages": [
+          "how-it-works"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "configuration"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": []
       }
     ]
   },

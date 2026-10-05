@@ -140,15 +140,20 @@ You control which edge breaks:
 ## Reading a plan
 
 ```text
-┌────────────────────┬──────┬──────────────────────────────────────────────────────────────┐
-│ table              │ rows │ via                                                          │
-├────────────────────┼──────┼──────────────────────────────────────────────────────────────┤
-│ public.employees   │ 4    │ seed (breakCycle applied)                                    │
-│ public.comments    │ 9    │ public.comments.subject_type -> public.posts (polymorphic: Post) │
-└────────────────────┴──────┴──────────────────────────────────────────────────────────────┘
+┌──────────────────┬──────┬────────────────────────────────────────────────────────────────────┐
+│ table            │ rows │ via                                                                │
+├──────────────────┼──────┼────────────────────────────────────────────────────────────────────┤
+│ public.comments  │ 2    │ seed                                                               │
+│ public.employees │ 4    │ public.posts.author_id -> public.employees.id (breakCycle applied) │
+│ public.posts     │ 1    │ public.comments.subject_type -> public.posts (polymorphic: Post)   │
+└──────────────────┴──────┴────────────────────────────────────────────────────────────────────┘
+
+total: 7 rows across 3 tables
 ```
 
-- **table** lists tables in load order: parents before children.
+This plan was seeded with two comments. The comments point at a post through a polymorphic reference, and the post's author is an employee whose `manager_id` self-reference is cut with `breakCycle`.
+
+- **table** lists tables in load order: parents before children, based on real foreign keys. Ties are sorted alphabetically.
 - **rows** is how many rows of that table are in the subset.
 - **via** is one edge by which the table was reached, or `seed`.
 - Warnings appear below the table, for example an unknown polymorphic type value.
