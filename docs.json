@@ -15,33 +15,32 @@
         "pages": [
           "index",
           "installation",
-          "quickstart",
-          "schema-configuration",
-          "architecture",
-          "troubleshooting",
-          "tributary-ai",
-          "privacy",
-          "safety",
-          "reruns-and-resume",
-          "library"
+          "quickstart"
         ]
       },
       {
         "group": "Core concepts",
         "pages": [
-          "how-it-works"
+          "how-it-works",
+          "safety"
         ]
       },
       {
         "group": "Guides",
         "pages": [
-          "configuration"
+          "configuration",
+          "schema-configuration",
+          "tributary-ai",
+          "reruns-and-resume",
+          "library"
         ]
       },
       {
         "group": "Reference",
         "pages": [
-          "cli-reference"
+          "cli-reference",
+          "troubleshooting",
+          "architecture"
         ]
       }
     ]
@@ -64,5 +63,12 @@
     "socials": {
       "github": "https://github.com/bhuneshvar-k/tributary"
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/privacy",
+      "destination": "/safety",
+      "permanent": true
+    }
+  ]
 }

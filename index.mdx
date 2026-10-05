@@ -1,3 +1,9 @@
+---
+title: "Introduction"
+description: "Copy referentially consistent subsets of a Postgres database"
+icon: "book-open"
+---
+
 Tributary copies a **referentially consistent subset** of a Postgres database into another database.
 
 You pick one or more seed rows, for example "the user with this email". Tributary follows real foreign keys, plus any relationships you declare, and collects every row that has to travel with those seeds. It then loads that subset into a target database. It creates missing tables on the way and upserts rows when you run it again.
