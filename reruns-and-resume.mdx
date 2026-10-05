@@ -34,7 +34,7 @@ Rows are written with `INSERT ... ON CONFLICT (primary key) DO UPDATE`. Running 
 This makes `sync` a good way to refresh local data: run it again whenever you want the latest source values.
 
 <Note>
-  Upserts match on the primary key only. If a target row conflicts on another unique constraint, the load fails with a `unique violation` error. See [Troubleshooting](/troubleshooting#unique-violation).
+  Upserts match on the primary key only. If a target row conflicts on another unique constraint, the load fails with a `unique violation` error. See [Troubleshooting](/troubleshooting#sync-and-target).
 </Note>
 
 ## Start clean with `--fresh`

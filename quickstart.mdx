@@ -44,15 +44,15 @@ This guide takes you from a fresh install to your first copied subset. You set u
 
     ```text
     no schema file: following database foreign keys only (see tributary schema init)
-    ┌──────────────────┬──────┬──────────────────────────────────────────────────┐
-    │ table            │ rows │ via                                              │
-    ├──────────────────┼──────┼──────────────────────────────────────────────────┤
-    │ public.companies │ 1    │ public.users.company_id -> public.companies.id   │
-    │ public.users     │ 1    │ seed                                             │
-    │ public.orders    │ 12   │ public.orders.user_id -> public.users.id         │
-    │ public.products  │ 7    │ public.order_items.product_id -> public.products.id │
-    │ public.order_items │ 31 │ public.order_items.order_id -> public.orders.id  │
-    └──────────────────┴──────┴──────────────────────────────────────────────────┘
+    ┌────────────────────┬──────┬─────────────────────────────────────────────────────┐
+    │ table              │ rows │ via                                                 │
+    ├────────────────────┼──────┼─────────────────────────────────────────────────────┤
+    │ public.companies   │ 1    │ public.users.company_id -> public.companies.id      │
+    │ public.users       │ 1    │ seed                                                │
+    │ public.orders      │ 12   │ public.orders.user_id -> public.users.id            │
+    │ public.products    │ 7    │ public.order_items.product_id -> public.products.id │
+    │ public.order_items │ 31   │ public.order_items.order_id -> public.orders.id     │
+    └────────────────────┴──────┴─────────────────────────────────────────────────────┘
     
     total: 52 rows across 5 tables
     ```
@@ -74,7 +74,9 @@ This guide takes you from a fresh install to your first copied subset. You set u
     ├────────────────────┼──────────┼────────────┼───────────┼────────┤
     │ public.companies   │ 1        │ 0          │ 0         │ loaded │
     │ public.users       │ 1        │ 0          │ 0         │ loaded │
-    │ ...                │          │            │           │        │
+    │ public.orders      │ 12       │ 0          │ 0         │ loaded │
+    │ public.products    │ 7        │ 0          │ 0         │ loaded │
+    │ public.order_items │ 31       │ 0          │ 0         │ loaded │
     └────────────────────┴──────────┴────────────┴───────────┴────────┘
     
     created 5 table(s) on target: public.companies, public.order_items, ...
