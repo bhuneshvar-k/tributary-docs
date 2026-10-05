@@ -1,183 +1,128 @@
 ---
-title: Architecture
-description: "Internal design and how Tributary works under the hood"
+title: "Architecture"
+description: "How Tributary is built, for contributors and the curious"
+icon: "sitemap"
 ---
 
-This page explains Tributary's internal architecture for contributors and users who want to understand how the tool works.
+This page describes how Tributary is built, for contributors and for anyone who wants to know what happens under the hood. To _use_ Tributary, [How it works](/how-it-works) is enough.
 
-## High-Level Design
+## Repository layout
 
-Tributary operates as a pipeline with four distinct phases:
-
-```text
-┌──────────┐    ┌───────────┐    ┌──────────┐    ┌──────┐
-│ Catalog  │───▶│   Graph   │───▶│ Closure  │───▶│ Load │
-│ Inspect  │    │   Build   │    │   Walk   │    │      │
-└──────────┘    └───────────┘    └──────────┘    └──────┘
-  pg_catalog    Merge real FKs    BFS/DFS from    Create tables
-  + enums       + schema file     seed rows       + upsert data
-```
-
-## Phase 0: Catalog Inspection (`internal/catalog`)
-
-Connects to the source Postgres database and walks `pg_catalog` to build a complete picture of its schema.
-
-### What It Reads
-
-- **Tables & Columns** — From `information_schema.columns`, skipping system schemas. Includes data type, nullability, length/precision/scale, and UDT name for custom types.
-- **Foreign Keys** — From `pg_constraint` (type `'f'`), using `unnest(conkey, confkey) WITH ORDINALITY` to preserve column pairing on composite keys.
-- **Primary Keys** — From `pg_constraint` (type `'p'`), in declaration order.
-- **Enum Types** — From `pg_type` + `pg_enum`, keyed by bare type name with labels in declaration order.
-
-### Domain Handling
-
-PostgreSQL reports domain columns with their underlying type (e.g. `"integer"`) rather than `"USER-DEFINED"`. The catalog normalizes these so downstream code handles them correctly.
-
-## Phase 1: Graph Build (`internal/graph`)
-
-Merges the catalog-discovered schema with a user-declared `tributary.schema.yaml` file into a single relationship graph.
-
-### Graph Structure
-
-```go
-type Graph struct {
-    Nodes       map[NodeID]catalog.Table      // table identity -> table metadata
-    Outgoing    map[NodeID][]Edge              // edges FROM this table
-    Incoming    map[NodeID][]Edge              // edges TO this table
-    PolyReverse map[NodeID][]PolyReverseEdge   // reverse index for polymorphic edges
-    Cycles      [][]NodeID                     // detected cycles
-}
-```
-
-### Edge Sources
-
-| Source | Description |
-| --- | --- |
-| `EdgeFromCatalog` | A real `pg_catalog` foreign key constraint |
-| `EdgeDeclared` | A user-declared relation (soft FK) |
-| `EdgePolymorphic` | A user-declared polymorphic association |
-
-### Cycle Detection
-
-Cycles are detected via DFS with an explicit recursion stack. When a traversal reaches a node still on the stack, the stack slice from that node onward is one cycle. Polymorphic edges are expanded into one traversal edge per possible target.
-
-### Validation
-
-Every relation from the schema file is validated against the actual catalog:
-
-- Unknown tables → error
-- Unknown columns → error
-- Polymorphic type column not on the same table → error
-- `ignore` on a non-existent FK → error
-- `dependency_breaks` on a non-cycle edge → error
-
-All errors are aggregated via `errors.Join`.
-
-## Phase 2: Closure Walk (`internal/graph/closure.go`)
-
-Computes the referentially consistent subset — every row that must travel together to stay valid.
-
-### Algorithm
-
-```text
-1. Query seed rows matching the predicate
-2. Enqueue each seed row
-3. While queue is not empty:
-   a. Dequeue a row
-   b. Fetch its full data (lazy hydration)
-   c. Expand: follow outgoing edges (parents) + incoming edges (children)
-   d. For each discovered row not yet seen: enqueue it
-```
-
-### Traversal Modes
-
-**Downstream Only** (default):
-
-- Follows incoming edges (children) only from the seed and rows reached by genuine downstream fan-out
-- Parent rows are fetched but not used as fan-out points
-- Produces a focused subset
-
-**Full** (`--include-upstream`):
-
-- Fans out from every row regardless of how it was reached
-- The original, unconditional bidirectional walk
-- Produces a broader subset
-
-### Cycle Handling
-
-Self-referencing/cyclic outgoing edges are handled per configured `dependency_breaks`:
-
-1. **Configured break** — The edge is stopped globally
-2. **Auto-break** (default) — The walker guesses which edge to break
-3. **Strict mode** (`--strict-cycles`) — Unresolved cycles become hard errors
-
-## Phase 3: Load (`internal/load`)
-
-Writes the computed subset to the target database.
-
-### Schema Creation
-
-If auto-create is enabled (default), missing target tables are created with:
-
-- Columns + data types
-- `NOT NULL` constraints
-- `PRIMARY KEY` constraints
-- Real foreign keys
-- Enum type definitions
-
-### Data Loading
-
-Each table is loaded in FK-safe order:
-
-1. **COPY to staging** — Rows are `COPY`'d into an unconstrained TEMP table
-2. **Upsert merge** — `INSERT INTO real_table SELECT * FROM staging ON CONFLICT (pk) DO UPDATE SET ...`
-3. **Self-referencing FK backfill** — Self-referencing FK columns are forced NULL during merge, then backfilled
-
-### Checkpointing
-
-Progress is tracked in a local SQLite database (`.tributary/state.db`):
-
-- Each sync is identified by a stable hash of (source, target, seed, schema-file)
-- Table-level checkpoints are written only after the transaction commits
-- A crash mid-table leaves nothing to resume from
-- Resumed runs skip tables already marked done
-
-## Phase 4: Masking (`internal/mask`)
-
-_Not yet implemented._ Will apply column-level transformers (hash, deterministic fake, redact) to rows before they land in the target database.
-
-## Project Structure
+Tributary is a TypeScript monorepo managed with pnpm.
 
 ```text
 tributary/
-├── cmd/
-│   ├── tributary/          # CLI entry point
-│   └── mcp-server/         # MCP server binary
-├── internal/
-│   ├── catalog/            # Schema introspection (pg_catalog)
-│   ├── graph/              # FK graph build + closure walk
-│   ├── subset/             # Dependency ordering (topological sort)
-│   ├── load/               # Schema ensure + COPY/upsert
-│   ├── state/              # SQLite checkpointing
-│   ├── mask/               # Column-level transformers (phase 3)
-│   ├── mcpserver/          # MCP server tools
-│   ├── replicate/          # Logical replication (phase 4)
-│   └── version/            # Version info + update check
-├── pkg/
-│   └── config/             # Configuration handling (schema files)
-└── testdata/               # Integration test fixtures
+├── packages/
+│   ├── core/          @bhuneshvar-k/tributary-core — the engine
+│   │   ├── src/
+│   │   └── test/      unit + integration tests (PGlite)
+│   └── cli/           @bhuneshvar-k/tributary — the `tributary` command
+│       ├── src/
+│       └── test/
+├── .github/workflows/ ci.yml, release.yml
+├── biome.json         lint + format
+└── vitest.config.ts
 ```
 
-## Key Design Decisions
+The CLI is a thin layer. It parses flags, resolves connection names and the schema file, prints results, and calls the core's `plan`, `sync`, `inspect`, and `schemaTemplate`. All database logic lives in `core`.
 
-### Why COPY + Staging?
+## Core modules
 
-`COPY` is the fastest way to load data into Postgres, but it has no conflict handling. By COPYing into an unconstrained TEMP table first, then merging with `ON CONFLICT DO UPDATE`, we get both speed and upsert semantics.
+| Module | Responsibility |
+| --- | --- |
+| `catalog.ts` | Types for the introspected schema: `Table`, `Column`, `ForeignKey`, `Schema`. |
+| `inspect.ts` | Reads tables, columns, primary keys, foreign keys, and enums from `information_schema` and `pg_catalog`. |
+| `schema-file.ts` | Parses and validates schema files (YAML/JSON) into listed tables, relations, and cycle breaks. |
+| `model.ts` | Shared types and helpers: `Seed`, `Relation`, `CycleBreak`, `Traversal`, `SchemaFileError`, `parseTableName`, `qualifyTable`. |
+| `schema-template.ts` | Generates the starting schema file for `tributary schema init`. |
+| `graph.ts` | Builds the table graph from foreign keys plus declared relations. Indexes edges both ways and finds cycles (Tarjan). `checkSchemaFile` reports every way a schema file doesn't fit a database. |
+| `closure.ts` | The walk: computes the subset from the seeds, applies traversal rules and cycle breaks. Decides which columns are deferred. |
+| `order.ts` | Topologically sorts tables for loading. |
+| `plan.ts` | `computeSubset` (inspect, graph, closure, order) and `plan`. |
+| `ddl.ts` | Creates missing schemas, enums, tables, and foreign keys on the target. Checks existing tables are compatible. |
+| `load.ts` | Batched upserts, backfills, and `--fresh` deletes. Explains constraint errors. |
+| `state.ts` | Run IDs, row fingerprints, and checkpoints in the target's `_tributary` schema. |
+| `guards.ts` | Target allowlist and the same-database check. |
+| `db.ts` | Connections, transactions, read-only snapshots, and identifier quoting. |
+| `sync.ts` | Orchestrates a sync from start to finish. |
 
-### Why SQLite for Checkpoints?
+## Data flow
 
-Pure Go SQLite keeps the single-binary deliverable true. A real coordination service would be overkill — the checkpoint store only needs to survive process crashes, not coordinate across nodes.
+```mermaid
+sequenceDiagram
+    participant CLI
+    participant Core as core.sync
+    participant Src as Source DB
+    participant Tgt as Target DB
 
-### Why Not Just Use `pg_dump`?
+    CLI->>Core: sync(options)
+    Core->>Core: checkTargetAllowed(target, allowlist)
+    Core->>Tgt: connect, databaseIdentity()
+    Core->>Src: BEGIN REPEATABLE READ READ ONLY
+    Core->>Src: databaseIdentity(), assertDifferentDatabases
+    Core->>Src: inspect → buildGraph → computeClosure
+    Core->>Src: COMMIT
+    Core->>Tgt: ensureSchema (one transaction)
+    Core->>Tgt: ensureStateSchema, startRun
+    opt --fresh
+        Core->>Tgt: delete subset rows, children first
+    end
+    loop each table, parents first
+        Core->>Tgt: BEGIN; upsert rows; markTableDone; COMMIT
+    end
+    Core->>Tgt: BEGIN; backfill deferred columns; COMMIT
+    Core->>Tgt: finishRun
+    Core-->>CLI: SyncResult
+```
 
-`pg_dump` doesn't understand application-level relationships (soft FKs, polymorphic associations). It can't compute a referentially consistent subset. Tributary fills this gap.
+## Key design decisions
+
+### Values travel as text
+
+The `pg` client is configured to return every value as Postgres's text output, with no JavaScript type parsing. Values are sent back to the target as text and parsed by the target's input functions. This avoids precision loss for `bigint`, `numeric`, and microsecond timestamps, and handles arrays, JSON, and `bytea` without special cases.
+
+### Rows are identified by primary key
+
+The walk keys every row by its primary-key values, so a row reached by several paths is stored once. This is why every table in the subset needs a primary key, and why upserts use `ON CONFLICT (primary key)`.
+
+### Breadth-first walk with reach tracking
+
+`computeClosure` runs a breadth-first search. Each row carries a **reach**: `downstream` or `parent`. Outgoing edges (to parents) are always followed. Incoming edges (to children) are followed only for downstream rows, or for every row under `--traversal full`. A row first seen as a parent and later reached downstream is expanded again.
+
+Each step is one parameterized `SELECT * FROM table WHERE col = $1 ...`. The seed query is the only one that contains user SQL, and it runs with the extended protocol so it can only be a single statement.
+
+### Cycles are broken, then backfilled
+
+`graph.ts` finds strongly connected components so the walk knows which edges are cyclic. When a row would follow a cyclic edge, `breakEdge` either uses a configured `breakCycle`, throws under `--strict-cycles`, or breaks the edge automatically. A broken edge stays broken for the rest of the walk.
+
+`deferredForeignKeys` then lists the real constraints that can't be satisfied row by row: self-references, broken edges, and ignored foreign keys. Those columns are written `NULL` during the upsert and restored in a final backfill pass, only where the referenced row is in the subset.
+
+### Load order uses real constraints only
+
+`tableOrder` runs Kahn's algorithm over the real foreign keys between subset tables, skipping self-references and deferred columns. Ties break alphabetically for deterministic output. Declared relations don't affect order, because the target doesn't enforce them.
+
+### Checkpoints commit with the data
+
+Each table's upsert and its checkpoint row commit in one transaction on the target. A crash can't leave a table loaded but unrecorded, or recorded but not loaded. The checkpoint stores a SHA-256 fingerprint of the table's rows, so a resume reloads any table whose source data changed.
+
+The run ID hashes the source address, the seeds, and a canonical form of the schema file's relations and cycle breaks. The canonical form drops declaration locations and sorts entries, so cosmetic edits to the file keep the same run ID.
+
+### Batching
+
+Upserts, backfills, and deletes are batched to at most 1,000 rows and about 60,000 bind parameters per statement, under Postgres's 65,535-parameter limit.
+
+## Development
+
+```bash
+pnpm install
+pnpm test        # unit + integration tests
+pnpm typecheck
+pnpm lint        # Biome
+pnpm build
+```
+
+Integration tests run Postgres **in-process** with [PGlite](https://pglite.dev), so you don't need Docker or a local Postgres server.
+
+## History
+
+Tributary was first written in Go. That version is archived as `tributary-go`. The TypeScript rewrite keeps the same core idea and adds a reusable library package, a committed schema file format, checkpoints stored in the target, and a multi-provider AI command.

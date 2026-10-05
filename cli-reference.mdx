@@ -1,425 +1,312 @@
 ---
-title: CLI Reference
-description: "Complete documentation for all Tributary commands and flags"
+title: "CLI reference"
+description: "Every Tributary command and flag"
+icon: "terminal"
 ---
 
-## Global Flags
+Every Tributary command and flag. Run `tributary --help` or `tributary <command> --help` for the same information in your terminal.
+
+## Overview
+
+| Command | What it does | Writes to |
+| --- | --- | --- |
+| [`plan`](#plan) | Computes the subset and reports row counts per table. | Nothing |
+| [`sync`](#sync) | Copies the subset from source to target. | Target |
+| [`inspect`](#inspect) | Prints the source schema as JSON. | Nothing |
+| [`schema init`](#schema-init) | Writes a starting schema file. | A local file |
+| [`schema validate`](#schema-validate) | Checks a schema file. | Nothing |
+| [`config`](#config) | Manages local settings. | The local config file |
+| [`ai`](#ai) | Turns a plain-language request into a command. | Target, after you confirm |
+
+### Global flags
 
 | Flag | Description |
 | --- | --- |
-| `--version` | Show version information |
-| `--help` | Show help for any command |
+| `-V, --version` | Print the version. |
+| `-h, --help` | Print help for Tributary or a command. |
 
-## `tributary inspect`
+### Exit codes
 
-Prints source schema metadata as JSON. Use this to understand your database structure before planning a subset.
-
-### Usage
-
-```bash
-tributary inspect --dsn "$TRIBUTARY_DSN"
-```
-
-### Flags
-
-| Flag | Description | Required |
-| --- | --- | --- |
-| `--dsn` | Database connection string (or env `TRIBUTARY_DSN`) | Yes |
-
-### Output
-
-The output is a JSON document containing:
-
-- **Tables** — Every user table in the database
-- **Columns** — Column name, data type, nullability, length/precision/scale, and UDT name for custom types
-- **Primary Keys** — Primary key columns per table (in declaration order)
-- **Foreign Keys** — Every FK constraint with from/to table and column pairs (supports composite keys)
-- **Enums** — Every custom enum type with its labels in declaration order
-
-### Example
-
-```bash
-tributary inspect --dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
-```
-
-<Accordion title="Example Output">
-  ```json
-  {
-    "tables": [
-      {
-        "schema": "public",
-        "name": "users",
-        "columns": [
-          { "name": "id", "type": "integer", "is_nullable": false },
-          { "name": "email", "type": "character varying", "is_nullable": false, "char_max_length": 255 }
-        ],
-        "primary_key": ["id"],
-        "foreign_keys": []
-      }
-    ],
-    "enums": {
-      "status": ["active", "inactive", "pending"]
-    }
-  }
-  ```
-</Accordion>
-
----
-
-## `tributary plan`
-
-Computes a referentially consistent subset from a seed table and predicate. Shows per-table row counts without actually loading data.
-
-### Usage
-
-```bash
-tributary plan \
-  --dsn "$TRIBUTARY_DSN" \
-  --seed-table users \
-  --seed-predicate "id = 42"
-```
-
-### Flags
-
-| Flag | Description | Required | Default |
-| --- | --- | --- | --- |
-| `--dsn` | Database connection string (or env `TRIBUTARY_DSN`) | Yes | — |
-| `--seed-table` | Starting table for subset | Yes | — |
-| `--seed-predicate` | SQL WHERE fragment to select seed rows | Yes | — |
-| `--schema-file` | Path to schema relations file | No | — |
-| `--strict-cycles` | Fail instead of auto-breaking cycles | No | `false` |
-| `--include-upstream` | Enable full bidirectional fan-out | No | `false` |
-| `--format` | Output format: `text` or `json` | No | `text` |
-
-### Behavior
-
-- Default mode is **downstream-only**: required parent rows are included but don't fan out to all siblings
-- `--include-upstream` enables full fan-out from any discovered row
-- `--seed-predicate` is a raw SQL `WHERE` fragment — not sanitized against injection (admin-tool trust model)
-
-### Example
-
-```bash
-tributary plan \
-  --dsn "postgres://user:pass@localhost:5432/prod?sslmode=disable" \
-  --seed-table public.users \
-  --seed-predicate "id = 42" \
-  --schema-file tributary.schema.yaml
-```
-
-<Accordion title="Example Output">
-  ```text
-  Subset Plan
-  ═══════════
-  
-  Seed: public.users WHERE id = 42
-  Mode: downstream-only
-  
-  Table                     Rows
-  ───────────────────────── ────
-  public.users                 1
-  public.orders               12
-  public.order_items          34
-  public.products              8
-  
-  Total: 55 rows across 4 tables
-  ```
-</Accordion>
-
----
-
-## `tributary sync run`
-
-Executes a one-shot subset copy from source to target. This is the main command for actually moving data.
-
-### Usage
-
-```bash
-tributary sync run \
-  --source-dsn "$SOURCE_DSN" \
-  --target-dsn "$TARGET_DSN" \
-  --seed-table users \
-  --seed-predicate "id = 42"
-```
-
-### Flags
-
-| Flag | Description | Required | Default |
-| --- | --- | --- | --- |
-| `--source-dsn` | Source database connection (or env `TRIBUTARY_SOURCE_DSN`) | Yes | — |
-| `--target-dsn` | Target database connection (or env `TRIBUTARY_TARGET_DSN`) | Yes | — |
-| `--seed-table` | Starting table for subset | Yes | — |
-| `--seed-predicate` | SQL WHERE fragment to select seed rows | Yes | — |
-| `--schema-file` | Path to schema relations file | No | — |
-| `--strict-cycles` | Fail instead of auto-breaking cycles | No | `false` |
-| `--include-upstream` | Enable full bidirectional fan-out | No | `false` |
-| `--fresh` | Force cleanup before reload | No | `false` |
-| `--no-create-schema` | Skip auto-creating target tables | No | `false` |
-| `--state-db` | Path to checkpoint database | No | `.tributary/state.db` |
-| `--no-resume` | Don't resume from checkpoints | No | `false` |
-| `--format` | Output format: `text` or `json` | No | `text` |
-
-### Behavior
-
-- Default write mode is **upsert** (`INSERT ... ON CONFLICT DO UPDATE`)
-- Re-running with the same scope is safe and expected
-- `--fresh` performs subset-scoped cleanup before reload
-- Missing target tables are auto-created by default
-- Checkpointing in local SQLite for crash resume
-
-### What Gets Created on the Target
-
-When auto-create is enabled (default), Tributary creates missing target tables with:
-
-- Columns + data types
-- `NOT NULL` constraints
-- `PRIMARY KEY` constraints
-- Real foreign keys
-- Enum type definitions
-
-**Not covered:** Defaults, sequences/identity, check constraints, indexes beyond PK, triggers, views, non-enum custom types.
-
----
-
-## `tributary ai`
-
-Natural language interface — describe what you want in plain English and Tributary generates and runs the command.
-
-### Usage
-
-```bash
-tributary ai "sync user admin@example.com"
-```
-
-### Setup (one-time)
-
-```bash
-# Pick a provider (claude, openai, gemini, openrouter, opencode)
-tributary config set ai.provider claude
-
-# Set your API key
-tributary config set ai.api_key "sk-ant-your-key-here"
-
-# (Optional) Set your DSN so the AI knows your schema
-tributary config set dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
-```
-
-### Flags
-
-| Flag | Description | Required | Default |
-| --- | --- | --- | --- |
-| `--dry-run` | Show the generated command without executing it | No | `false` |
-| `--auto` | Skip confirmation prompt and execute immediately | No | `false` |
-| `--provider` | Override AI provider for this invocation | No | — |
-| `--model` | Override the AI model for this invocation | No | — |
-| `--max-tokens` | Override max response tokens | No | `0` |
-| `--format` | Output format: `text` or `json` | No | `text` |
-
-### Examples
-
-```bash
-# Basic usage — AI translates your words into a tributary command
-tributary ai "sync user admin@example.com"
-tributary ai "plan a subset for all active users"
-tributary ai "show me the schema for the orders table"
-
-# Preview what the AI would do (no execution)
-tributary ai --dry-run "sync all orders from last 7 days"
-
-# Skip confirmation prompt
-tributary ai --auto "subset users where team = 'marketing'"
-
-# Override provider/model per invocation
-tributary ai --provider openai "sync user 42"
-tributary ai --provider gemini --model gemini-2.0-flash "plan orders"
-
-# JSON output (for scripting)
-tributary ai --format json "sync user admin@example.com"
-```
-
-### How It Works
-
-1. **Schema load** — If a DSN is configured, Tributary inspects your database schema (tables, columns, foreign keys) and sends that metadata as context to the AI
-2. **AI call** — Your prompt + schema context goes to the configured provider
-3. **Parse** — The AI's JSON response is parsed into a structured command
-4. **Preview** — The command, explanation, and any warnings are displayed
-5. **Execute** — Unless `--dry-run`, the command runs after confirmation (or immediately with `--auto`)
-
-### Supported Providers
-
-| Provider | Default Model |
+| Code | Meaning |
 | --- | --- |
-| `claude` | `claude-sonnet-4-20250514` |
-| `openai` | `gpt-4o` |
-| `gemini` | `gemini-2.0-flash` |
-| `openrouter` | `anthropic/claude-sonnet-4-20250514` |
-| `opencode` | `claude-sonnet-4-20250514` |
+| `0` | Success |
+| `1` | Any error, including invalid flags. The message is printed to stderr, prefixed with `error:`. |
+
+### Output streams
+
+Results go to **stdout**. Notes such as `using schema ./schema.yaml`, warnings, and errors go to **stderr**. This means `--json` output can be piped safely:
+
+```bash
+tributary plan -t users -w "id = 42" --source prod --json | jq '.totalRows'
+```
+
+---
+
+## plan
+
+Computes the subset and reports how many rows each table contributes. It never writes anything.
+
+```bash
+tributary plan --source <name> -t <table> -w <sql> [-t <table> -w <sql> ...] [options]
+```
+
+| Flag | Description |
+| --- | --- |
+| `-s, --source <name>` | **Required.** Source connection name. |
+| `-t, --seed-table <table>` | Seed table, such as `users` or `billing.invoices`. A bare name resolves in the schema file's `defaultSchema` (default `public`). Repeatable. |
+| `-w, --where <sql>` | SQL `WHERE` fragment for the `--seed-table` in the same position, such as `"id = 42"`. Repeatable. |
+| `--schema <file>` | Schema file. Default: `./schema.yaml`, `./schema.yml`, or `./schema.json`, whichever exists first. |
+| `--traversal <mode>` | `downstream` (default) or `full`. See [Traversal modes](/how-it-works#traversal-modes). |
+| `--strict-cycles` | Fail on a foreign key cycle with no `breakCycle` entry, instead of breaking it automatically. |
+| `--json` | Print the result as JSON. |
+
+You need at least one seed, and every `-t` needs a matching `-w`.
+
+<Tabs>
+  <Tab title="Examples">
+    ```bash
+    # One seed
+    tributary plan -t users -w "email = 'admin@example.com'" --source prod
+    
+    # Two seeds
+    tributary plan -t users -w "id = 42" -t feature_flags -w true --source prod
+    
+    # Table in another schema, full traversal
+    tributary plan -t billing.invoices -w "id = 7" --traversal full --source prod
+    
+    # Explicit schema file, fail on undeclared cycles
+    tributary plan -t users -w "id = 42" --schema config/schema.yaml --strict-cycles --source prod
+    ```
+  </Tab>
+  <Tab title="JSON output">
+    ```json
+    {
+      "tables": [
+        { "table": "public.users", "rows": 1, "via": "seed" },
+        { "table": "public.orders", "rows": 12, "via": "public.orders.user_id -> public.users.id" }
+      ],
+      "totalRows": 13,
+      "breaks": [],
+      "warnings": []
+    }
+    ```
+
+    A table whose cycle was broken also has `"break": { "table": "...", "column": "...", "auto": true }`.
+  </Tab>
+</Tabs>
+
+---
+
+## sync
+
+Copies the subset from the source into the target. It creates missing tables and upserts rows, so it's safe to run again.
+
+```bash
+tributary sync --source <name> --target <name> -t <table> -w <sql> [options]
+```
+
+Takes every [`plan`](#plan) flag, plus:
+
+| Flag | Description |
+| --- | --- |
+| `-T, --target <name>` | **Required.** Target connection name. Its host must be on the [allowlist](/configuration#allowlist). |
+| `--fresh` | Delete the subset's rows from the target first, and don't resume an earlier run. |
+| `--no-create-schema` | Fail instead of creating missing target tables. |
 
 <Note>
-  The AI feature requires an internet connection and a valid API key. It is completely optional — all other Tributary commands work offline.
+  `-s` is `--source` and `-T` (capital) is `--target`. `-t` (lowercase) is `--seed-table`.
 </Note>
 
+<Tabs>
+  <Tab title="Examples">
+    ```bash
+    # Copy one user and their data
+    tributary sync -t users -w "id = 42" --source prod --target local
+    
+    # Reset those rows on the target to match the source
+    tributary sync -t users -w "id = 42" --source prod --target local --fresh
+    
+    # Target schema must come from migrations
+    tributary sync -t users -w "id = 42" --source prod --target local --no-create-schema
+    ```
+  </Tab>
+  <Tab title="Output">
+    ```text
+    ┌──────────────────┬──────────┬────────────┬───────────┬──────────────────────────┐
+    │ table            │ upserted │ backfilled │ left null │ status                   │
+    ├──────────────────┼──────────┼────────────┼───────────┼──────────────────────────┤
+    │ public.companies │ 1        │ 0          │ 0         │ loaded                   │
+    │ public.users     │ 1        │ 0          │ 0         │ already loaded (resumed) │
+    │ public.employees │ 4        │ 3          │ 1         │ loaded                   │
+    └──────────────────┴──────────┴────────────┴───────────┴──────────────────────────┘
+    
+    total: 5 rows upserted across 3 tables (run 3f9a1c0d2b7e4a61)
+    ```
+
+    See [Load order and deferred columns](/reruns-and-resume#load-order-and-deferred-columns) for what each column means.
+  </Tab>
+  <Tab title="JSON output">
+    ```json
+    {
+      "runId": "3f9a1c0d2b7e4a61",
+      "tables": [
+        {
+          "table": "public.users",
+          "rowsUpserted": 1,
+          "rowsBackfilled": 0,
+          "rowsLeftNull": 0,
+          "resumed": false
+        }
+      ],
+      "totalRows": 1,
+      "schema": {
+        "typesCreated": [],
+        "tablesCreated": ["public.users"],
+        "constraintsCreated": [],
+        "warnings": []
+      },
+      "breaks": [],
+      "warnings": []
+    }
+    ```
+  </Tab>
+</Tabs>
+
+Before writing, `sync` checks that the target host is allowlisted and that source and target aren't the same database. See [Safety](/safety).
+
 ---
 
-## `tributary config`
+## inspect
 
-Manage user-level configuration stored in `~/.tributary/config.yaml`.
-
-### Usage
+Prints the source schema as JSON: tables, columns, primary keys, foreign keys, and enum types.
 
 ```bash
-tributary config <subcommand>
+tributary inspect --source <name>
 ```
 
-### Subcommands
-
-| Subcommand | Description |
+| Flag | Description |
 | --- | --- |
-| `set <key> <value>` | Set a config value |
-| `get <key>` | Get a config value |
-| `list` | List all config values |
-| `unset <key>` | Remove a config value |
-| `path` | Print the config file path |
+| `-s, --source <name>` | **Required.** Source connection name. |
 
-### Precedence
+```json
+{
+  "tables": [
+    {
+      "schema": "public",
+      "name": "orders",
+      "columns": [
+        { "name": "id", "type": "bigint", "nullable": false, "udtSchema": "pg_catalog", "udtName": "int8", "sqlType": "bigint" },
+        { "name": "user_id", "type": "bigint", "nullable": true, "udtSchema": "pg_catalog", "udtName": "int8", "sqlType": "bigint" }
+      ],
+      "primaryKey": ["id"],
+      "foreignKeys": [
+        {
+          "constraintName": "orders_user_id_fkey",
+          "fromTable": "public.orders",
+          "fromColumns": ["user_id"],
+          "toTable": "public.users",
+          "toColumns": ["id"]
+        }
+      ]
+    }
+  ],
+  "enums": { "public.order_status": ["pending", "paid", "shipped"] }
+}
+```
 
-Config values are used as fallbacks when CLI flags and environment variables are not set:
+System schemas and Tributary's own `_tributary` schema are left out.
 
-**CLI flags > Environment variables > Config file**
+---
 
-The config file is optional — Tributary works without it.
+## schema init
 
-### Available Keys
+Writes a starting schema file from the source database: every table by its schema-qualified name, its real foreign keys as comments, and each `*_id` column without a foreign key as a commented line for you to fill in. Nothing is guessed.
 
-| Key | Description |
+```bash
+tributary schema init --source <name> [options]
+```
+
+| Flag | Description |
 | --- | --- |
-| `dsn` | Default Postgres connection string (inspect, plan) |
-| `source_dsn` | Default source Postgres connection string (sync run) |
-| `target_dsn` | Default target Postgres connection string (sync run) |
-| `seed_table` | Default seed table name |
-| `seed_predicate` | Default seed predicate (raw SQL WHERE fragment) |
-| `schema_file` | Default path to tributary.schema.yaml |
-| `ai.provider` | AI provider: `claude`, `openai`, `gemini`, `openrouter`, or `opencode` |
-| `ai.api_key` | API key for the AI provider (stored with 0600 permissions) |
-| `ai.model` | AI model override (empty = provider default) |
-| `ai.base_url` | Custom AI API endpoint (empty = provider default) |
-
-### Examples
-
-```bash
-# Set your database connection
-tributary config set dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
-
-# Set source and target for sync
-tributary config set source_dsn "postgres://user:pass@localhost:5432/prod"
-tributary config set target_dsn "postgres://user:pass@localhost:5432/dev"
-
-# Set default seed parameters
-tributary config set seed_table users
-tributary config set seed_predicate "id = 42"
-
-# Configure AI
-tributary config set ai.provider claude
-tributary config set ai.api_key "sk-ant-your-key-here"
-
-# View all config
-tributary config list
-
-# Get a specific value
-tributary config get dsn
-```
-
-### Security
-
-- Config file is written with `0600` permissions (owner read/write only)
-- DSN strings may contain passwords — the file is not world-readable
-- API keys are stored in the same file with the same protections
-
----
-
-## `tributary update`
-
-Updates Tributary to the latest version.
-
-### Usage
-
-```bash
-tributary update
-```
-
-### Features
-
-- Automatically downloads and installs the latest version
-- Falls back to manual instructions if self-update fails
-- Shows current and available versions
-
----
-
-## `tributary completion`
-
-Generates shell autocompletion scripts for bash, zsh, fish, and PowerShell.
-
-### Usage
-
-```bash
-tributary completion [shell]
-```
-
-### Shells
-
-| Shell | Command |
-| --- | --- |
-| bash | `tributary completion bash` |
-| zsh | `tributary completion zsh` |
-| fish | `tributary completion fish` |
-| powershell | `tributary completion powershell` |
-
-### Install
-
-**Bash:**
-
-```bash
-tributary completion bash > /etc/bash_completion.d/tributary
-# Or for current session:
-source <(tributary completion bash)
-```
-
-**Zsh:**
-
-```bash
-tributary completion zsh > "${fpath[1]}/_tributary"
-# Or for current session:
-source <(tributary completion zsh)
-```
-
-**Fish:**
-
-```bash
-tributary completion fish > ~/.config/fish/completions/tributary.fish
-```
-
-**PowerShell:**
-
-```powershell
-tributary completion powershell > tributary.ps1
-. .\tributary.ps1
-```
-
----
-
-## DSN Format
-
-Postgres connection strings follow this format:
+| `-s, --source <name>` | **Required.** Source connection name. |
+| `-o, --output <file>` | Where to write it. Default: `./schema.yaml`. |
+| `--format <format>` | `yaml` (default) or `json`. JSON can't hold comments, so it only lists the tables. |
+| `--force` | Overwrite an existing file without asking. Without it, Tributary asks `y/N` at a terminal, and refuses when there's no terminal (CI, pipes). |
 
 ```text
-postgres://username:password@hostname:port/database?sslmode=require
+$ tributary schema init --source prod
+wrote ./schema.yaml: 42 tables, 17 *_id columns to fill in
 ```
 
-### Common SSL Modes
+See [Schema file](/schema-configuration#create-a-schema-file).
 
-| Mode | Description |
+---
+
+## schema validate
+
+Checks a schema file's format and, with `--source`, that every table it lists (even one with nothing under it) and every column it names exists in the database. Exits non-zero on any problem.
+
+```bash
+tributary schema validate [--schema <file>] [--source <name>]
+```
+
+| Flag | Description |
 | --- | --- |
-| `disable` | No SSL (local development only) |
-| `require` | SSL required, no certificate verification |
-| `verify-ca` | SSL required, verify server certificate |
-| `verify-full` | SSL required, verify server certificate and hostname |
+| `--schema <file>` | Schema file. Default: `./schema.yaml`, `./schema.yml`, or `./schema.json`. |
+| `-s, --source <name>` | Also check against this connection's database. |
+
+```text
+$ tributary schema validate --source prod
+./schema.yaml: valid
+```
+
+---
+
+## config
+
+Manages local settings: connections, the allowlist, and AI provider settings. See [Configuration](/configuration).
+
+| Command | Description |
+| --- | --- |
+| `tributary config set <key> <value>` | Set a value. `allowlist` takes a comma-separated list. |
+| `tributary config get <key>` | Print a value. |
+| `tributary config unset <key>` | Remove a value. |
+| `tributary config list` | Print every setting as JSON, secrets included, unmasked. |
+| `tributary config path` | Print where settings are stored. |
+
+Valid keys:
+
+| Key | Example value |
+| --- | --- |
+| `connections.<name>.url` | `postgres://user@host:5432/db` |
+| `allowlist` | `localhost,*.staging.internal` |
+| `ai.provider` | `anthropic`, `openai`, `google`, `openrouter`, `opencode` |
+| `ai.model` | `claude-sonnet-5-5` |
+| `ai.apiKey` | `sk-ant-...` |
+| `ai.baseUrl` | `http://localhost:11434/v1` |
+
+---
+
+## ai
+
+Describe what you want in plain language. Tributary generates the command, shows it, and runs it.
+
+```bash
+tributary ai <request...> --source <name> [options]
+```
+
+| Flag | Description |
+| --- | --- |
+| `-s, --source <name>` | **Required.** Source connection name. |
+| `-T, --target <name>` | Target connection name. Needed for a generated `sync`. Without it, the model only generates `plan` or `inspect`. |
+| `--schema <file>` | Schema file passed to the generated `plan` or `sync`. |
+| `-y, --yes` | Run a generated `sync` without asking. Required to run a `sync` when there's no terminal, such as in CI. |
+| `--dry-run` | Only show the generated command. |
+
+```bash
+tributary ai "how many rows come with order 1001?" --source prod
+tributary ai "copy the user admin@example.com and their orders" --source prod --target local
+tributary ai "copy customer acme" --source prod --target local --dry-run
+```
+
+See [Tributary AI](/tributary-ai).

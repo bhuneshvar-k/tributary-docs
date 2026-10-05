@@ -1,95 +1,112 @@
 ---
 title: "Introduction"
-description: "Welcome to your project"
+description: "Copy referentially consistent subsets of a Postgres database"
+icon: "book-open"
 ---
 
-Tributary is a command-line tool that extracts **referentially consistent subsets** from a Postgres database and loads them into a target Postgres instance.
+Tributary copies a **referentially consistent subset** of a Postgres database into another database.
 
-It walks real foreign keys plus user-declared relationships, computes the closure of rows that must travel together, and loads that subset — maintaining full referential integrity in the target.
+You pick one or more seed rows, for example "the user with this email". Tributary follows real foreign keys, plus any relationships you declare, and collects every row that has to travel with those seeds. It then loads that subset into a target database. It creates missing tables on the way and upserts rows when you run it again.
 
-```text
-┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-│  Source Postgres │ ───► │    Tributary    │ ───► │ Target Postgres │
-│   (Production)  │      │  (CLI Tool)     │      │  (Dev/Staging)  │
-└─────────────────┘      └─────────────────┘      └─────────────────┘
+```mermaid
+flowchart LR
+    S[("Source Postgres<br/>(production, read-only)")] -->|seed rows + every related row| T["Tributary<br/>(CLI on your machine)"]
+    T -->|create tables, upsert rows| D[("Target Postgres<br/>(local, dev, staging)")]
 ```
 
 ## Why Tributary?
 
-Production databases grow fast. Copying the entire dataset to dev or staging is slow, expensive, and often impractical. But naively copying a few rows breaks foreign key constraints and leaves you with an unusable database.
+Copying a whole production database to your laptop is slow, expensive, and often not allowed. Copying a handful of rows by hand breaks foreign keys and leaves you with a database your app can't use.
 
-Tributary solves this by computing the **referential closure** of a seed query — it follows every foreign key relationship to determine exactly which rows must travel together, then loads them in the correct order.
+Tributary sits in between. You say which rows you care about, and it works out the rest: the orders that belong to that user, the products those orders reference, the company the user belongs to, and so on. The result is small, but every reference inside it resolves.
 
-## Key Features
+Typical uses:
 
-<CardGroup>
-  <Card title="Referential Integrity" icon="link">
-    Automatically follows foreign keys to maintain data relationships. Seed one row and get every parent, child, and related record needed.
+- Reproduce a customer's bug locally with exactly that customer's data.
+- Seed a development or staging database with realistic, connected data.
+- Build a small fixture database for integration tests.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Referential integrity" icon="link">
+    Follows foreign keys in both directions, so every row in the subset has the parents it needs.
   </Card>
 
-  <Card title="Upsert Semantics" icon="arrows-rotate">
-    Safe to re-run. Existing rows are updated, new rows are inserted. No duplicate key errors.
+  <Card title="App-level relations" icon="diagram-project">
+    Declare relationships your database doesn't enforce, including composite and polymorphic ones, in a schema file.
   </Card>
 
-  <Card title="Resumable Sync" icon="rotate-right">
-    Checkpoint system in local SQLite allows interrupted syncs to resume from where they left off.
+  <Card title="Safe to re-run" icon="arrows-rotate">
+    Rows already on the target are updated to match the source. Nothing is duplicated.
   </Card>
 
-  <Card title="Schema Auto-Create" icon="database">
-    Automatically creates missing target tables with columns, types, PKs, FKs, and enum types.
+  <Card title="Resumable" icon="rotate-right">
+    Each table commits with a checkpoint, so an interrupted sync continues where it stopped.
   </Card>
 
-  <Card title="AI-Powered" icon="robot">
-    Use natural language to plan and sync subsets — just say what you want and Tributary does the rest.
+  <Card title="Schema auto-create" icon="database">
+    Missing target tables are created with the source's exact column types, keys, and enums.
   </Card>
 
-  <Card title="Cross-Platform" icon="laptop">
-    Works on macOS, Linux, and Windows (amd64 & arm64). Single binary, no dependencies.
+  <Card title="Production-safe reads" icon="shield-halved">
+    Every source query runs in a read-only transaction. Writes only go to allowlisted hosts.
+  </Card>
+
+  <Card title="Plain-language mode" icon="wand-magic-sparkles">
+    Describe what you want, and `tributary ai` builds the command for you to review.
+  </Card>
+
+  <Card title="Library included" icon="code">
+    Use the same engine from TypeScript with `@bhuneshvar-k/tributary-core`.
   </Card>
 </CardGroup>
 
-## How It Works
+## How it works in one minute
 
-Tributary operates in four phases:
+<Steps>
+  <Step title="Inspect">
+    Tributary reads the source schema: tables, columns, primary keys, foreign keys, and enum types.
+  </Step>
+  <Step title="Build the graph">
+    It merges the database's foreign keys with the relationships in your schema file into one graph of tables.
+  </Step>
+  <Step title="Walk from the seeds">
+    Starting at your seed rows, it follows the graph to collect every row that must come along.
+  </Step>
+  <Step title="Load">
+    It creates any missing tables on the target and upserts rows table by table, parents before children.
+  </Step>
+</Steps>
 
-1. **Inspect** — Reads the source database's schema from `pg_catalog`: tables, columns, primary keys, foreign keys, and enum types.
-2. **Graph Build** — Merges discovered FK constraints with user-declared relationships (from `tributary.schema.yaml`) into a single relationship graph. Detects cycles.
-3. **Closure Walk** — Starting from seed rows (matching your WHERE predicate), walks the graph to compute every row that must travel together for referential validity.
-4. **Load** — Creates missing target tables, then loads rows in FK-safe order using upsert semantics (`INSERT ... ON CONFLICT DO UPDATE`).
+Read [How Tributary works](/how-it-works) for the details.
 
-## Quick Example
+## A quick taste
 
 ```bash
-# Inspect your schema
-tributary inspect --dsn "postgres://user:pass@localhost:5432/prod"
+# Preview: how many rows would travel with this user? Writes nothing.
+tributary plan -t users -w "email = 'admin@example.com'" --source prod
 
-# Plan a subset
-tributary plan --seed-table users --seed-predicate "id = 42"
-
-# Sync it to your dev database
-tributary sync run --source-dsn "postgres://user:pass@localhost:5432/prod" --target-dsn "postgres://user:pass@localhost:5432/dev" --seed-table users --seed-predicate "id = 42"
+# Copy them into your local database.
+tributary sync -t users -w "email = 'admin@example.com'" --source prod --target local
 ```
 
-## Next Steps
+## Next steps
 
-<CardGroup>
+<CardGroup cols={2}>
+  <Card title="Install Tributary" icon="download" href="/installation">
+    Install the CLI with npm.
+  </Card>
+
   <Card title="Quickstart" icon="rocket" href="/quickstart">
-    Get from zero to a working subset in under 5 minutes.
+    Copy your first subset in five minutes.
   </Card>
 
-  <Card title="Installation" icon="download" href="/installation">
-    Install Tributary via Homebrew, curl, Go, or build from source.
+  <Card title="Schema file" icon="file-code" href="/schema-configuration">
+    Teach Tributary about relationships your database doesn't declare.
   </Card>
 
-  <Card title="CLI Reference" icon="terminal" href="/cli-reference">
-    Full documentation for every command and flag.
-  </Card>
-
-  <Card title="Schema Configuration" icon="file-code" href="/schema-configuration">
-    Define soft FKs, composite keys, polymorphic associations, and more.
-  </Card>
-
-  <Card title="Tributary AI" icon="wand-magic-sparkles" href="/tributary-ai">
-    Use natural language to interact with Tributary — no flags to remember.
+  <Card title="CLI reference" icon="terminal" href="/cli-reference">
+    Every command and flag.
   </Card>
 </CardGroup>

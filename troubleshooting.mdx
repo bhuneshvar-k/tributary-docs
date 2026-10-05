@@ -1,139 +1,242 @@
 ---
-title: Troubleshooting
-description: "Common issues and how to resolve them"
+title: "Troubleshooting"
+description: "Common errors and how to fix them"
+icon: "life-ring"
 ---
 
-## Connection Issues
+Find your error message below. Tributary errors start with `error:` and usually name the table, column, or constraint involved.
 
-### "connect: connection refused"
+<Tip>
+  Run `plan` before `sync`. Most problems with the subset, such as missing tables, cycles, or bad schema files, show up in `plan` without writing anything.
+</Tip>
 
-The Postgres server isn't accepting connections on the specified host and port.
+## Setup and configuration
 
-**Check:**
+<AccordionGroup>
+  <Accordion title='no connection named "..."'>
+    ```text
+    error: no connection named "prd" (known: prod, local); add it with: tributary config set connections.prd.url <postgres-url>
+    ```
 
-- Is Postgres running? (`pg_isready -h localhost -p 5432`)
-- Is the host/port correct in your DSN?
-- Is Postgres configured to listen on the right address? (check `postgresql.conf` → `listen_addresses`)
-- Is there a firewall blocking the port?
+    The `--source` or `--target` name isn't in your config. Check the spelling against the `known:` list, or add the connection:
 
-### "connect: password authentication failed"
+    ```bash
+    tributary config set connections.prd.url 'postgres://...'
+    ```
+  </Accordion>
 
-The username or password is incorrect.
+  <Accordion title="unknown config key">
+    ```text
+    error: unknown config key "conections.prod.url"; valid keys: ...
+    ```
 
-**Check:**
+    Only `connections.<name>.url`, `allowlist`, `ai.provider`, `ai.model`, `ai.apiKey`, and `ai.baseUrl` can be set. See [Configuration](/configuration#settings).
+  </Accordion>
 
-- Verify credentials with `psql` directly
-- Check `pg_hba.conf` for authentication method requirements
-- Ensure the password in the DSN is URL-encoded if it contains special characters
+  <Accordion title="Settings seem to disappear">
+    Tributary may be reading a different config file. Run `tributary config path` to see which one. The `TRIBUTARY_CONFIG_DIR` and `XDG_CONFIG_HOME` environment variables change the location. See [Where settings are stored](/configuration#where-settings-are-stored).
+  </Accordion>
 
-### "sslmode=require failed"
+  <Accordion title="Connection refused, timeout, or authentication failed">
+    These come from Postgres, not Tributary. Check the URL with `psql`:
 
-SSL connection couldn't be established.
+    ```bash
+    psql "$(tributary config get connections.prod.url)" -c 'select 1'
+    ```
 
-**Check:**
+    For managed databases, you often need `?sslmode=require` at the end of the URL.
+  </Accordion>
+</AccordionGroup>
 
-- Does the server support SSL? (`SHOW ssl;` in psql)
-- Try `sslmode=disable` for local development
-- Try `sslmode=verify-ca` if you have a CA certificate
+## Seeds
 
-## Schema Issues
+<AccordionGroup>
+  <Accordion title="every --seed-table needs a --where">
+    ```text
+    error: every --seed-table needs a --where (got 2 --seed-table, 1 --where)
+    ```
 
-### "no such table in catalog"
+    Seeds are pairs. Each `-t` matches the `-w` in the same position. To select every row of a table, use `-w true`.
+  </Accordion>
 
-The seed table or a referenced table doesn't exist in the database.
+  <Accordion title="no seed: pass --seed-table <table> --where <sql>">
+    `plan` and `sync` need at least one seed. Add `-t <table> -w <sql>`.
+  </Accordion>
 
-**Fix:**
+  <Accordion title='no such table "..." in source schema'>
+    The seed table doesn't exist. Bare names resolve to the schema file's `defaultSchema`, which is `public` by default. Use `schema.table` for other schemas, such as `-t billing.invoices`. Run `tributary inspect --source prod` to list tables.
+  </Accordion>
 
-- Run `tributary inspect` to see all available tables
-- Check for typos in the table name
-- Ensure you're connecting to the right database
-- Table names are case-sensitive — use exact casing from `information_schema`
+  <Accordion title='table "..." has no primary key'>
+    ```text
+    error: table "public.events" has no primary key; tributary needs one to identify rows
+    ```
 
-### "table has no primary key"
+    Tributary identifies rows by primary key, so every table in the subset needs one. Either add a primary key in the source, or stop the walk from reaching the table. Use `ignore` for a real foreign key, or remove the declared reference that leads there.
+  </Accordion>
 
-Tributary requires a primary key on every table to identify rows.
+  <Accordion title="A SQL syntax error in the seed">
+    The `-w` value is pasted into `WHERE (...)` as-is. Quote it for your shell so the SQL arrives intact. String literals use single quotes inside:
 
-**Fix:**
+    ```bash
+    -w "email = 'admin@example.com'"
+    ```
 
-- Add a primary key to the table
-- If the table truly has no PK, you cannot subset it with Tributary
+    Multiple statements, such as `id = 1; DELETE ...`, are always rejected.
+  </Accordion>
 
-### "invalid schema file: relations[i]: from=... no such table"
+  <Accordion title="The plan is much bigger than expected">
+    - Check whether you used `--traversal full`. The default `downstream` is much smaller.
+    - Look at the **via** column to find the edge that pulls in the extra rows.
+    - If a real foreign key pulls in unrelated data, such as `created_by` or `actor_id`, add it to `ignore` in the [schema file](/schema-configuration#ignore).
+  </Accordion>
 
-A relation in `tributary.schema.yaml` references a table that doesn't exist in the database.
+  <Accordion title="Expected rows are missing from the plan">
+    - The relationship probably isn't a real foreign key. Declare it with `references` or `polymorphic` in the schema file. `tributary schema init` lists every `*_id` column that has no foreign key, so you can fill in its target.
+    - Under `downstream` traversal, required parents don't fan out to their other children. See [Traversal modes](/how-it-works#traversal-modes).
+    - Check the output for `no schema file: following database foreign keys only`. If you see it, Tributary didn't find your schema file. Run from the directory that contains it, or pass `--schema`.
+  </Accordion>
+</AccordionGroup>
 
-**Fix:**
+## Schema files
 
-- Run `tributary inspect` and check the actual table names
-- Ensure schema-qualified names are correct
-- Check for typos
+<AccordionGroup>
+  <Accordion title="invalid schema file">
+    ```text
+    error: ./schema.yaml: invalid schema file:
+      - tables.orders.references.customer_ref: invalid target "users": expected "table.column" or "schema.table.column"
+    ```
 
-### "unresolved cycle"
+    Every problem is listed with its path in the file. Fix each one, then run `tributary schema validate --source prod`. See [File format](/schema-configuration#file-format).
+  </Accordion>
 
-A cycle was detected in the FK graph with no configured `dependency_breaks` entry (and `--strict-cycles` is enabled).
+  <Accordion title="not a tributary schema file: it needs `version: 1` at the top">
+    Add `version: 1` as the first key.
+  </Accordion>
 
-**Fix:**
+  <Accordion title='no such column "..." on "..."'>
+    A table or column named in the schema file doesn't exist in the source database. Check for typos, and use `schema.table` names for tables outside `defaultSchema`.
+  </Accordion>
 
-- Add a `dependency_breaks` entry to `tributary.schema.yaml`
-- Or remove `--strict-cycles` to allow auto-breaking
+  <Accordion title='no catalog foreign key on "..." uses column "..."'>
+    `ignore` only works on columns that are part of a **real** foreign key. If the relationship is declared in your schema file, remove it from `references` instead.
+  </Accordion>
 
-## Sync Issues
+  <Accordion title="... is not part of any foreign key cycle">
+    A `breakCycle` entry names a column that isn't in a cycle. Remove it, or fix the table or column name.
+  </Accordion>
 
-### "Seed query matched no rows"
+  <Accordion title='no such table "..." in the database'>
+    `schema validate --source` found a table in the file that the database doesn't have, even if nothing is declared under it. Remove the entry, or fix its name. `plan` and `sync` ignore such empty entries, but validation reports them so the file stays clean.
+  </Accordion>
 
-The WHERE predicate didn't match any rows in the seed table.
+  <Accordion title="unsupported file type">
+    A schema file must end in `.yaml`, `.yml`, or `.json`.
+  </Accordion>
 
-**Fix:**
+  <Accordion title="... already exists; pass --force to overwrite it">
+    `schema init` won't replace an existing file without confirmation. At a terminal it asks first. In CI or a pipe there's nobody to ask, so it refuses. Pass `--force` to overwrite, or `-o <file>` to write somewhere else.
+  </Accordion>
 
-- Run the query directly in psql to verify
-- Check for type mismatches (string vs integer)
-- Ensure you're connecting to the right database
+  <Accordion title="schema file not found">
+    The file passed to `--schema` doesn't exist. Paths are relative to the current directory.
+  </Accordion>
+</AccordionGroup>
 
-### "row vanished between discovery and fetch"
+## Cycles
 
-A row was discovered during the closure walk but disappeared before it could be fetched. This usually means the source data changed mid-sync.
+<AccordionGroup>
+  <Accordion title="unresolved cycle">
+    ```text
+    error: unresolved cycle: public.teams.lead_id is part of a foreign key cycle with no dependency break (add one, or turn off strictCycles for best-effort)
+    ```
 
-**Fix:**
+    You used `--strict-cycles` and the walk met a cycle with no `breakCycle` entry. Add the column named in the error, or another column in the same cycle, to `breakCycle`:
 
-- Re-run the sync — upsert semantics make this safe
-- For large databases, consider syncing during a quiet period
+    ```yaml
+    tables:
+      teams:
+        breakCycle: [lead_id]
+    ```
+  </Accordion>
 
-### Upsert not working as expected
+  <Accordion title="... is NOT NULL but has to be loaded NULL and backfilled">
+    A self-reference, broken cycle, or ignored foreign key column is `NOT NULL`. Tributary loads these columns as `NULL` first, so it can't load this table. Options:
 
-If rows aren't being updated, check:
+    - Choose a different, nullable column in the cycle for `breakCycle`.
+    - Remove the `ignore` on a `NOT NULL` column.
+    - Make the column nullable on the source, if that's acceptable.
+  </Accordion>
+</AccordionGroup>
 
-- Does the target table have the correct primary key?
-- Are the PK column values the same on source and target?
-- Try `--fresh` to force a clean reload
+## Sync and target
 
-## Performance Issues
+<AccordionGroup>
+  <Accordion title="refusing to write: target host is not in the target allowlist">
+    The target's host isn't allowlisted. An empty allowlist blocks everything. Add the host:
 
-### Slow sync on large databases
+    ```bash
+    tributary config set allowlist 'localhost,dev-db.internal'
+    ```
 
-Tributary processes one table at a time in FK-safe order. For very large subsets:
+    Setting `allowlist` replaces the whole list, so include every host you need.
+  </Accordion>
 
-- Narrow your seed predicate to reduce the subset size
-- Use `tributary plan` first to see per-table row counts
-- Consider syncing during off-peak hours
-- Check that indexes exist on foreign key columns
+  <Accordion title="refusing to sync: source and target are the same database">
+    The source and target point at the same database, perhaps through a pooler, or one is a replica of the other. Check both connection URLs.
+  </Accordion>
 
-### High memory usage
+  <Accordion title="target is missing N table(s) ... and schema creation is off">
+    You passed `--no-create-schema` and some tables don't exist on the target. Run your migrations on the target first, or drop the flag.
+  </Accordion>
 
-The closure walk holds all discovered rows in memory. For very large subsets (millions of rows), this can use significant memory.
+  <Accordion title="target table ... is missing column ...">
+    The target table exists but is missing a column the source has. Tributary never alters existing tables. Run your migrations so the target matches the source, or drop the target table so Tributary recreates it.
+  </Accordion>
 
-- Narrow your seed predicate
-- Split large subsets into multiple smaller syncs
+  <Accordion title="column ... is nullable in source but NOT NULL on target">
+    Source rows may hold `NULL` there, which the target would reject. Align the target's column with the source.
+  </Accordion>
 
-## Checkpoint Issues
+  <Accordion title="column ... uses type ..., which doesn't exist on the target and isn't an enum">
+    Tributary auto-creates enum types only. Create domains, composite types, and range types on the target first, for example by running your migrations.
+  </Accordion>
 
-### Stale checkpoints
+  <Accordion title="foreign key violation loading ...">
+    ```text
+    error: foreign key violation loading public.orders (constraint orders_user_id_fkey): the referenced row isn't in this subset or on the target, likely a dangling reference in the source data
+    ```
 
-If a previous sync crashed and left stale state:
+    Usually the source has a row that points at a row that doesn't exist. This can happen when the source constraint is `NOT VALID`, or the constraint exists on the target but not on the source. Find the dangling rows in the source, or add the column to `ignore` if the constraint is real on the source.
+  </Accordion>
 
-```bash
-# Delete the state database and start fresh
-rm .tributary/state.db
+  <Accordion title="unique violation loading ...">
+    A row on the target conflicts with an incoming row on a unique key **other than** the primary key. For example, a local user with the same email but a different ID. Delete or change the conflicting target row, then run the sync again. It resumes where it stopped.
+  </Accordion>
 
-# Or use --fresh flag
-tributary sync run --fresh ...
-```
+  <Accordion title="A sync was interrupted">
+    Run the exact same command again. Finished tables are skipped and shown as `already loaded (resumed)`. To start over instead, add `--fresh`. See [Resume](/reruns-and-resume#resume-after-an-interruption).
+  </Accordion>
+
+  <Accordion title="did not create foreign key ... the referenced table is outside this subset">
+    This is a warning, not an error. A new target table references a table that isn't in the subset and doesn't exist on the target, so that one constraint was skipped. The data still loads.
+  </Accordion>
+
+  <Accordion title="Some foreign key columns are NULL on the target">
+    That's expected for self-references, broken cycles, and ignored foreign keys whose referenced row is outside the subset. The **left null** column in the sync output counts them. Add the referenced rows as another seed if you need them.
+  </Accordion>
+</AccordionGroup>
+
+## AI
+
+<AccordionGroup>
+  <Accordion title="not at a terminal, so nobody can confirm the sync">
+    A generated `sync` needs confirmation, and there's no terminal to ask in, for example in CI. Check the command with `--dry-run`, then add `--yes`.
+  </Accordion>
+</AccordionGroup>
+
+For other AI errors, see [Tributary AI troubleshooting](/tributary-ai#troubleshooting).
+
+## Still stuck?
+
+Open an issue on [GitHub](https://github.com/bhuneshvar-k/tributary/issues) with the command you ran, the full error, and your Tributary version (`tributary --version`). Remove connection strings and secrets first.

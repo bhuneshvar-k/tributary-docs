@@ -1,95 +1,152 @@
 ---
 title: "Tributary AI"
-description: "Use natural language to interact with Tributary"
+description: "Describe what you want in plain language and let Tributary build the command"
+icon: "wand-magic-sparkles"
 ---
 
-Tributary ships with a built-in AI assistant that translates natural language into Tributary commands. Describe what you want in plain English and Tributary generates, explains, and optionally executes the right command.
-
-## Setup (one-time)
-
-Pick an AI provider and set your API key:
+`tributary ai` turns a plain-language request into a Tributary command. It reads your source schema, asks an AI model for the matching `inspect`, `plan`, or `sync` command, shows it to you, and runs it after you confirm.
 
 ```bash
-# Choose a provider: claude, openai, gemini, openrouter, or opencode
-tributary config set ai.provider claude
-
-# Set your API key
-tributary config set ai.api_key "sk-ant-your-key-here"
+tributary ai "copy the user admin@example.com and their orders" --source prod --target local
 ```
 
-Optionally set your database DSN so the AI can see your schema:
-
-```bash
-tributary config set dsn "postgres://user:pass@localhost:5432/mydb?sslmode=disable"
+```text
+◇  Generated command
+│
+│  tributary sync --seed-table users --where 'email = '\''admin@example.com'\''' --source prod --target local
+│
+│  Copies the user with that email and everything that depends on them,
+│  including their orders, into the target.
+│
+◆  This writes to the target database. Run it?
+│  ○ Yes / ● No
 ```
+
+The command it prints is a normal Tributary command. You can copy it, edit it, or put it in a script.
+
+## Set up a provider
+
+Pick a provider and give it an API key. Anthropic is the default.
+
+<Tabs>
+  <Tab title="Anthropic">
+    ```bash
+    tributary config set ai.provider anthropic
+    tributary config set ai.apiKey 'sk-ant-...'
+    ```
+
+    Default model: `claude-sonnet-5-5`. API key fallback: `ANTHROPIC_API_KEY`.
+  </Tab>
+  <Tab title="OpenAI">
+    ```bash
+    tributary config set ai.provider openai
+    tributary config set ai.apiKey 'sk-...'
+    ```
+
+    Default model: `gpt-4o`. API key fallback: `OPENAI_API_KEY`.
+  </Tab>
+  <Tab title="Google">
+    ```bash
+    tributary config set ai.provider google
+    tributary config set ai.apiKey '...'
+    ```
+
+    Default model: `gemini-2.0-flash`. API key fallback: `GOOGLE_GENERATIVE_AI_API_KEY`.
+  </Tab>
+  <Tab title="OpenRouter">
+    ```bash
+    tributary config set ai.provider openrouter
+    tributary config set ai.model 'anthropic/claude-sonnet-5.5'
+    tributary config set ai.apiKey 'sk-or-...'
+    ```
+
+    No default model, so `ai.model` is required. API key fallback: `OPENROUTER_API_KEY`.
+  </Tab>
+  <Tab title="OpenCode / self-hosted">
+    Any OpenAI-compatible endpoint, such as a local model server.
+
+    ```bash
+    tributary config set ai.provider opencode
+    tributary config set ai.baseUrl 'http://localhost:11434/v1'
+    tributary config set ai.model 'qwen2.5-coder'
+    tributary config set ai.apiKey '...'   # only if the endpoint needs one
+    ```
+
+    `ai.baseUrl` and `ai.model` are required.
+  </Tab>
+</Tabs>
+
+You can skip `ai.apiKey` and set the provider's environment variable instead. Set `ai.model` to override any default.
 
 ## Usage
 
 ```bash
-# Basic — AI translates your words into a tributary command
-tributary ai "sync user admin@example.com"
-tributary ai "plan a subset for all active users"
-tributary ai "show me the schema for the orders table"
-
-# Preview what the AI would do (no execution)
-tributary ai --dry-run "sync all orders from last 7 days"
-
-# Skip confirmation prompt
-tributary ai --auto "subset users where team = 'marketing'"
-
-# Override provider/model per invocation
-tributary ai --provider openai "sync user 42"
-tributary ai --provider gemini --model gemini-2.0-flash "plan orders"
-
-# JSON output (for scripting)
-tributary ai --format json "sync user admin@example.com"
+tributary ai "<request>" --source <name> [--target <name>] [options]
 ```
 
-## Flags
-
-| Flag | Description |
+| Option | Description |
 | --- | --- |
-| `--dry-run` | Show the generated command without executing it |
-| `--auto` | Skip confirmation prompt and execute immediately |
-| `--provider` | Override AI provider for this invocation |
-| `--model` | Override the AI model for this invocation |
-| `--max-tokens` | Override max response tokens |
-| `--format` | Output format: `text` or `json` (default: `text`) |
+| `-s, --source <name>` | **Required.** The connection whose schema the model sees, and the source of the generated command. |
+| `-T, --target <name>` | The target connection. Without it, `sync` isn't offered to the model: a request to copy data becomes a `plan` instead, with a warning saying so. |
+| `--schema <file>` | Schema file to pass to the generated `plan` or `sync`. |
+| `-y, --yes` | Run a generated `sync` without asking. |
+| `--dry-run` | Only print the generated command. Don't run anything. |
 
-## How It Works
+You don't need quotes around the request, because every remaining word is joined, but quotes are safer with special characters.
 
-1. **Schema load** — If a DSN is configured, Tributary inspects your database (table names, columns, foreign keys) and sends that metadata as context to the AI
-2. **AI call** — Your prompt + schema context goes to the configured provider
-3. **Parse** — The AI's JSON response is parsed into a structured command
-4. **Preview** — The command, explanation, and any warnings are displayed
-5. **Execute** — Unless `--dry-run`, the command runs after confirmation (or immediately with `--auto`)
+## Example requests
 
-## Supported Providers
-
-| Provider | Default Model | Notes |
-| --- | --- | --- |
-| `claude` | `claude-sonnet-4-20250514` | Anthropic Messages API |
-| `openai` | `gpt-4o` | OpenAI Chat Completions |
-| `gemini` | `gemini-2.0-flash` | Google Generative Language API |
-| `openrouter` | `anthropic/claude-sonnet-4-20250514` | OpenAI-compatible, multi-model |
-| `opencode` | `claude-sonnet-4-20250514` | Local proxy, no API key needed |
-
-## Configuration
-
-| Config Key | Description |
+| Request | Likely command |
 | --- | --- |
-| `ai.provider` | AI provider: `claude`, `openai`, `gemini`, `openrouter`, or `opencode` |
-| `ai.api_key` | API key for the provider (stored with 0600 permissions) |
-| `ai.model` | Model override (empty = provider default) |
-| `ai.base_url` | Custom API endpoint (empty = provider default) |
+| "show me the schema" | `inspect` |
+| "how many rows would come with order 1001?" | `plan --seed-table orders --where 'id = 1001'` |
+| "preview copying users who signed up today" | `plan --seed-table users --where 'created_at >= current_date'` |
+| "copy customer acme and their invoices" | `sync --seed-table customers --where 'name = ''acme'''` |
+| "copy user 42 and everything related to their whole company" | `sync ... --traversal full` |
+| "reload user 42 from scratch" | `sync ... --fresh` |
 
-## Security
+How the model decides:
 
-- API keys are stored with `0600` file permissions (same as DSN passwords)
-- Only schema metadata is sent to AI providers — never row data or connection strings
-- Write operations (`sync run`) require confirmation by default
-- The AI never receives your DSN or credentials
+- Words like _copy_, _sync_, _load_, or _migrate_ mean `sync`. Words like _preview_, _how many_, or _what would_ mean `plan`.
+- `--traversal full` is only used if you ask for related data beyond the seed's own.
+- `--fresh` is only used if you ask for a clean reload.
+- Without `--target`, the model can't choose `sync`. It falls back to `plan` and tells you in a warning, so you can preview first and add `--target` when you're ready.
+- If a table or column you name doesn't exist, the model picks the closest match and tells you in a warning.
+- If the request is ambiguous, the model picks the most likely meaning and states its assumption.
 
-<Note>
-The AI feature requires an internet connection and a valid API key. It is completely optional — all other Tributary commands work offline without any AI configuration.
-</Note>
+Warnings appear in yellow under the generated command. Read them before you confirm.
+
+## Confirmation and safety
+
+- `plan` and `inspect` commands run right away, because they don't write anything.
+- A `sync` always asks first. The default answer is **No**.
+- `--yes` skips the prompt. Use it only in scripts where you've already reviewed the request.
+- When there's no terminal to ask, such as in CI or a pipe, a generated `sync` fails instead of running unless you pass `--yes`.
+- `--dry-run` never runs anything.
+- All the usual protections still apply: read-only source, the target allowlist, and the same-database check. See [Safety](/safety).
+
+## Limits
+
+- The generated command uses **one seed**. For several seeds, take the generated command and add more `-t`/`-w` pairs yourself.
+- `--strict-cycles` and `--no-create-schema` are never generated. Add them by hand if you need them.
+- The model only sees your schema, not your data, so it can't check that a value like an email exists. Run the `plan` first if you're unsure.
+
+## What is sent to the provider
+
+`tributary ai` sends your request and a description of the source schema: table names, primary keys, column names and types, nullability, foreign keys, and enum labels. It never sends row data or connection strings.
+
+<Warning>
+  If your schema itself is confidential, use a provider you trust, such as a self-hosted model through the `opencode` provider, or write commands by hand.
+</Warning>
+
+## Troubleshooting
+
+| Error | Fix |
+| --- | --- |
+| `set a model for openrouter: tributary config set ai.model <model-id>` | The provider has no default model. Set `ai.model`. |
+| `set the endpoint for opencode: tributary config set ai.baseUrl <url>` | Set `ai.baseUrl` to your endpoint. |
+| `the model asked for a sync, but no --target was given` | Rare, because the model is told `sync` isn't available without a target. Add `--target`, or rephrase the request as a preview. |
+| You asked to copy data but got a `plan` | You didn't pass `--target`. Add it to get a `sync`. |
+| `not at a terminal, so nobody can confirm the sync: pass --yes to run it` | You're running in CI or a pipe. Review the command with `--dry-run` first, then add `--yes`. |
+| `the model returned an invalid command: ...` | The model's answer didn't fit the expected shape. Rephrase the request, name the table explicitly, or try a stronger model. |
+| An authentication error from the provider | Check `ai.apiKey` or the provider's environment variable. |

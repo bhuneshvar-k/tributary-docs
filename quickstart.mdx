@@ -1,147 +1,144 @@
 ---
 title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+description: "Set up connections, preview a subset, and copy it in five minutes"
+icon: "rocket"
 ---
 
-This guide walks you through installing Tributary and syncing your first subset from a source Postgres database to a target.
+This guide takes you from a fresh install to your first copied subset. You set up two connections, preview a subset, and then copy it.
 
-## Prerequisites
+## Before you start
 
-Before you begin, make sure you have:
+- Install Tributary. See [Installation](/installation).
+- Have a **source** Postgres database to read from, such as production or a replica.
+- Have a **target** Postgres database to write to, such as a local database. It can be empty, because Tributary creates missing tables.
 
-- **Go 1.25+** (if installing via `go install`)
-- **Docker** (if running integration tests)
-- Access to two Postgres databases (source and target) — they can be the same instance with different database names
+<Tip>
+  Use a read-only database role for the source. Tributary never writes to the source, but a read-only role adds a second layer of protection.
+</Tip>
 
-## Step 1: Install Tributary
+## Copy your first subset
 
-Choose your preferred installation method:
+<Steps>
+  <Step title="Add your connections">
+    Give each database a short name. You use these names on every command instead of full connection strings.
 
-<Tabs>
-  <Tab title="Homebrew (Recommended)">
     ```bash
-    brew tap bhuneshvar-k/tap
-    brew trust bhuneshvar-k/tap
-    brew install tributary
+    tributary config set connections.prod.url  'postgres://readonly@prod-db:5432/app'
+    tributary config set connections.local.url 'postgres://localhost:5432/app_dev'
+    ```
+  </Step>
+  <Step title="Allow your target host">
+    Tributary refuses to write to any host that isn't on your allowlist. The allowlist starts empty, which blocks every target.
+
+    ```bash
+    tributary config set allowlist localhost
     ```
 
-    <Note>
-      `brew trust` is required once per machine for third-party taps. After that, `brew upgrade tributary` works automatically.
-    </Note>
-  </Tab>
-  <Tab title="curl Installer">
+    For several hosts, separate them with commas: `localhost,*.staging.internal`.
+  </Step>
+  <Step title="Preview the subset">
+    `plan` computes the subset and shows how many rows each table contributes. It writes nothing.
+
     ```bash
-    curl -sSL https://get.tributary.dev | bash
+    tributary plan -t users -w "email = 'admin@example.com'" --source prod
     ```
 
-    With options:
+    - `-t users` is the **seed table**.
+    - `-w "email = 'admin@example.com'"` is a SQL `WHERE` fragment that picks the seed rows.
 
-    ```bash
-    # Install specific version
-    curl -sSL https://get.tributary.dev | bash -s -- --version v1.0.0
+    You see a table like this:
+
+    ```text
+    no schema file: following database foreign keys only (see tributary schema init)
+    ┌────────────────────┬──────┬─────────────────────────────────────────────────────┐
+    │ table              │ rows │ via                                                 │
+    ├────────────────────┼──────┼─────────────────────────────────────────────────────┤
+    │ public.companies   │ 1    │ public.users.company_id -> public.companies.id      │
+    │ public.users       │ 1    │ seed                                                │
+    │ public.orders      │ 12   │ public.orders.user_id -> public.users.id            │
+    │ public.products    │ 7    │ public.order_items.product_id -> public.products.id │
+    │ public.order_items │ 31   │ public.order_items.order_id -> public.orders.id     │
+    └────────────────────┴──────┴─────────────────────────────────────────────────────┘
     
-    # Install to custom directory
-    curl -sSL https://get.tributary.dev | bash -s -- --to ~/.local/bin
+    total: 52 rows across 5 tables
     ```
-  </Tab>
-  <Tab title="Go Install">
-    ```bash
-    go install github.com/bhuneshvar-k/tributary/cmd/tributary@latest
-    ```
-  </Tab>
-  <Tab title="Build from Source">
-    ```bash
-    git clone https://github.com/bhuneshvar-k/tributary.git
-    cd tributary
-    make build
-    ./bin/tributary --version
-    ```
-  </Tab>
-</Tabs>
 
-Verify the installation:
-
-```bash
-tributary --version
-# tributary version v1.0.0
-```
-
-## Step 2: Set Your DSN
-
-Export your source database connection string:
-
-```bash
-export TRIBUTARY_DSN="postgres://user:password@localhost:5432/source_db?sslmode=disable"
-```
-
-<Warning>
-  Always use `sslmode=require` or `sslmode=verify-full` in production environments. `sslmode=disable` is only for local development.
-</Warning>
-
-## Step 3: Inspect Your Schema
-
-Run the `inspect` command to see your database structure:
-
-```bash
-tributary inspect --dsn "$TRIBUTARY_DSN"
-```
-
-This outputs a JSON document showing every table, its columns (with types and nullability), primary keys, and foreign keys.
-
-## Step 4: Plan a Subset
-
-Before syncing, preview what rows will be included:
-
-```bash
-tributary plan   --dsn "$TRIBUTARY_DSN"   --seed-table users   --seed-predicate "id = 42"
-```
-
-This shows per-table row counts for the referentially consistent subset rooted at `users.id = 42`.
-
-## Step 5: Sync the Subset
-
-Now copy the subset to your target database:
-
-```bash
-tributary sync run   --source-dsn "postgres://user:password@localhost:5432/source_db?sslmode=disable"   --target-dsn "postgres://user:password@localhost:5432/target_db?sslmode=disable"   --seed-table users   --seed-predicate "id = 42"
-```
-
-Tributary will:
-
-1. Auto-create any missing tables in the target database
-2. Load rows in FK-safe order
-3. Use upsert semantics — safe to re-run
-
-## What's Next?
-
-<AccordionGroup>
-  <Accordion title="Run it again (refresh)">
-    Simply re-run the same `sync run` command. Upsert semantics mean existing rows get updated, new rows get inserted.
+    The **via** column shows how Tributary reached each table.
+  </Step>
+  <Step title="Copy the subset">
+    When the plan looks right, run `sync` with the same seed and a target:
 
     ```bash
-    tributary sync run --source-dsn ... --target-dsn ... --seed-table users --seed-predicate "id = 42"
+    tributary sync -t users -w "email = 'admin@example.com'" --source prod --target local
     ```
-  </Accordion>
 
-  <Accordion title="Add custom relationships">
-    If your database has relationships that aren't enforced by foreign keys (common in Rails/ActiveRecord apps), create a `tributary.schema.yaml` file.
+    Tributary creates any missing tables on `local`, then loads the rows:
 
-    See [Schema Configuration](/schema-configuration) for details.
-  </Accordion>
-
-  <Accordion title="Sync a different user">
-    Change the seed predicate to target a different row:
-
-    ```bash
-    tributary sync run       --source-dsn "$SOURCE_DSN"       --target-dsn "$TARGET_DSN"       --seed-table users       --seed-predicate "email = 'alice@example.com'"
+    ```text
+    ┌────────────────────┬──────────┬────────────┬───────────┬────────┐
+    │ table              │ upserted │ backfilled │ left null │ status │
+    ├────────────────────┼──────────┼────────────┼───────────┼────────┤
+    │ public.companies   │ 1        │ 0          │ 0         │ loaded │
+    │ public.users       │ 1        │ 0          │ 0         │ loaded │
+    │ public.orders      │ 12       │ 0          │ 0         │ loaded │
+    │ public.products    │ 7        │ 0          │ 0         │ loaded │
+    │ public.order_items │ 31       │ 0          │ 0         │ loaded │
+    └────────────────────┴──────────┴────────────┴───────────┴────────┘
+    
+    created 5 table(s) on target: public.companies, public.order_items, ...
+    total: 52 rows upserted across 5 tables (run 3f9a1c0d2b7e4a61)
     ```
-  </Accordion>
+  </Step>
+  <Step title="Run it again (optional)">
+    Running the same `sync` again is safe. Rows already on the target are updated to match the source, and nothing is duplicated.
+  </Step>
+</Steps>
 
-  <Accordion title="Force a fresh reload">
-    Use `--fresh` to wipe existing subset rows before reloading:
+## More ways to pick seeds
 
-    ```bash
-    tributary sync run --fresh --source-dsn ... --target-dsn ... --seed-table users --seed-predicate "id = 42"
-    ```
-  </Accordion>
-</AccordionGroup>
+Use several seeds in one run by repeating the `-t` and `-w` pair. Each `-t` pairs with the `-w` in the same position.
+
+```bash
+tributary sync \
+  -t users -w "id = 42" \
+  -t feature_flags -w true \
+  --source prod --target local
+```
+
+`-w true` selects every row of that table. Use it for small lookup tables.
+
+Tables outside the `public` schema use a `schema.table` name:
+
+```bash
+tributary plan -t billing.invoices -w "number = 'INV-1001'" --source prod
+```
+
+## Prefer plain language?
+
+If you've set up an AI provider, describe what you want and Tributary builds the command:
+
+```bash
+tributary ai "copy the user admin@example.com and their orders" --source prod --target local
+```
+
+It shows the generated command and asks before it writes anything. See [Tributary AI](/tributary-ai).
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Add a schema file" icon="file-code" href="/schema-configuration">
+    Follow relationships your database doesn't declare as foreign keys, such as Rails associations.
+  </Card>
+
+  <Card title="Understand traversal" icon="diagram-project" href="/how-it-works">
+    Learn which rows Tributary includes and why.
+  </Card>
+
+  <Card title="Re-runs and resume" icon="rotate-right" href="/reruns-and-resume">
+    Learn how upserts, `--fresh`, and checkpoints behave.
+  </Card>
+
+  <Card title="Safety" icon="shield-halved" href="/safety">
+    Learn how Tributary protects production.
+  </Card>
+</CardGroup>

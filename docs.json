@@ -11,18 +11,36 @@
   "navigation": {
     "pages": [
       {
-        "group": "Getting Started",
+        "group": "Get started",
         "pages": [
           "index",
-          "quickstart",
           "installation",
-          "schema-configuration",
-          "architecture",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core concepts",
+        "pages": [
+          "how-it-works",
+          "safety"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
           "configuration",
-          "troubleshooting",
+          "schema-configuration",
           "tributary-ai",
+          "reruns-and-resume",
+          "library"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
           "cli-reference",
-          "privacy"
+          "troubleshooting",
+          "architecture"
         ]
       }
     ]
@@ -45,5 +63,13 @@
     "socials": {
       "github": "https://github.com/bhuneshvar-k/tributary"
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/privacy",
+      "destination": "/safety",
+      "permanent": true
+    }
+  ],
+  "description": "Tributary copies referentially consistent subsets of a Postgres database: pick seed rows, and every related row comes with them."
 }
