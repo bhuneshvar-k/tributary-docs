@@ -70,5 +70,6 @@
       "destination": "/safety",
       "permanent": true
     }
-  ]
+  ],
+  "description": "Tributary copies referentially consistent subsets of a Postgres database: pick seed rows, and every related row comes with them."
 }

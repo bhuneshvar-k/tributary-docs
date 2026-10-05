@@ -1,3 +1,9 @@
+---
+title: "Schema file"
+description: "Declare relationships your database doesn't enforce, ignore foreign keys, and break cycles"
+icon: "file-code"
+---
+
 Tributary follows real foreign keys automatically. Many applications also have relationships the database doesn't enforce, such as Rails or Django associations, polymorphic columns, or composite references. You describe those in a **schema file**.
 
 The schema file describes your _database_, not a single run. It holds no seeds and no connection strings, so you can commit it to your repository and share it with your team.
